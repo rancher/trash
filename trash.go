@@ -5,6 +5,8 @@ import (
 	"os"
 	"os/exec"
 	"path"
+	"path/filepath"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
@@ -64,6 +66,7 @@ func run(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	logrus.Debugf("dir: '%s'", dir)
 
 	if err := vendor(dir, trashFile); err != nil {
 		return err
@@ -225,6 +228,196 @@ func fetch(i conf.Import) error {
 	return nil
 }
 
+var goOsArch [][]string = [][]string{
+	{"darwin", "386"},
+	{"darwin", "amd64"},
+	{"darwin", "arm"},
+	{"darwin", "arm64"},
+	{"dragonfly", "amd64"},
+	{"freebsd", "386"},
+	{"freebsd", "amd64"},
+	{"freebsd", "arm"},
+	{"linux", "386"},
+	{"linux", "amd64"},
+	{"linux", "arm"},
+	{"linux", "arm64"},
+	{"linux", "ppc64"},
+	{"linux", "ppc64le"},
+	{"netbsd", "386"},
+	{"netbsd", "amd64"},
+	{"netbsd", "arm"},
+	{"openbsd", "386"},
+	{"openbsd", "amd64"},
+	{"openbsd", "arm"},
+	{"plan9", "386"},
+	{"plan9", "amd64"},
+	{"solaris", "amd64"},
+	{"windows", "386"},
+	{"windows", "amd64"},
+}
+
+type Packages map[string]bool
+
+func (p Packages) merge(x Packages) Packages {
+	for k, _ := range x {
+		p[k] = true
+	}
+	return p
+}
+
+func parentPackages(p string) Packages {
+	r := Packages{}
+	for len(p) > 0 {
+		r[p] = true
+		p, _ = path.Split(p)
+		if len(p) > 0 && p[len(p)-1] == '/' {
+			p = p[:len(p)-1]
+		}
+	}
+	return r
+}
+
+func listImports(p string) Packages {
+	imports := Packages{}
+	imports.merge(parentPackages(p))
+
+	out, _ := exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p).Output()
+	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
+		imports.merge(parentPackages(v))
+	}
+
+	return imports
+}
+
+func getTestImports(p string) Packages {
+	r := Packages{}
+	out, _ := exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p).Output()
+	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
+		r[v] = true
+	}
+	return r
+}
+
+func listPackages(rootPackage string) Packages {
+	out, _ := exec.Command("go", "list", rootPackage+"/...").Output()
+	r := Packages{}
+	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
+		if strings.Index(v, rootPackage+"/vendor/") != 0 {
+			logrus.Debugf("Adding package: '%s'", v)
+			r[v] = true
+		}
+	}
+	return r
+}
+
+func collectImports(rootPackage string) Packages {
+	logrus.Infof("Collecting imports, root package: '%s'", rootPackage)
+	imports := Packages{}
+
+	packages := Packages{}
+
+	for _, t := range goOsArch {
+		goOs, goArch := t[0], t[1]
+		os.Setenv("GOOS", goOs)
+		os.Setenv("GOARCH", goArch)
+		packages.merge(listPackages(rootPackage))
+	}
+
+	for p, _ := range packages {
+		logrus.Infof("Collecting imports for package '%s'", p)
+		for _, t := range goOsArch {
+			goOs, goArch := t[0], t[1]
+			os.Setenv("GOOS", goOs)
+			os.Setenv("GOARCH", goArch)
+			testImports := getTestImports(p)
+			for testImport, _ := range testImports {
+				imports.merge(listImports(testImport))
+			}
+			imports.merge(listImports(p))
+		}
+	}
+
+	return imports
+}
+
+func removeUnusedImports(rootPackage string, imports Packages) error {
+	return filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
+		logrus.Debugf("removeUnusedImports, path: '%s', err: '%v'", path, err)
+		if os.IsNotExist(err) {
+			return filepath.SkipDir
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if !imports[path] {
+			logrus.Infof("Removing Unused dir: '%s'", path)
+			err := os.RemoveAll(path)
+			if err == nil {
+				return filepath.SkipDir
+			}
+			if os.IsNotExist(err) {
+				return filepath.SkipDir
+			}
+			logrus.Errorf("Error removing Unused dir, path: '%s', err: '%v'", path, err)
+			return err
+		}
+		return nil
+	})
+}
+
+func removeEmptyDirs(rootPackage string) error {
+	for count := 1; count != 0; {
+		count = 0
+		if err := filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
+			logrus.Debugf("removeEmptyDirs, path: '%s', err: '%v'", path, err)
+			if os.IsNotExist(err) {
+				return filepath.SkipDir
+			}
+			if err != nil {
+				return err
+			}
+			if info.IsDir() {
+				err := os.Remove(path)
+				if err == nil {
+					logrus.Infof("Removed Empty dir: '%s'", path)
+					count++
+					return filepath.SkipDir
+				}
+				if os.IsNotExist(err) {
+					return filepath.SkipDir
+				}
+			}
+			return nil
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func cleanup(dir string) error {
+	gopath := path.Join(dir, "..", "..", "..", "..")
+	gopath = filepath.Clean(gopath)
+	os.Setenv("GOPATH", gopath)
+	logrus.Debugf("gopath: '%s'", gopath)
+
+	rootPackage := dir[len(gopath+"/src/"):]
+	logrus.Debugf("rootPackage: '%s'", rootPackage)
+
+	os.Chdir(path.Join(gopath, "src"))
+
+	importsLen := 0
+	for imports := collectImports(rootPackage); importsLen != len(imports); imports = collectImports(rootPackage) {
+		importsLen = len(imports)
+		if err := removeUnusedImports(rootPackage, imports); err != nil {
+			logrus.Errorf("Error removing unused dirs: %v", err)
+		}
+		if err := removeEmptyDirs(rootPackage); err != nil {
+			logrus.Errorf("Error removing empty dirs: %v", err)
+		}
+	}
 	return nil
 }
