@@ -332,10 +332,11 @@ func listPackages(rootPackage string) Packages {
 }
 
 func collectImports(rootPackage string) Packages {
-	logrus.Infof("Collecting subpackages of '%s'", rootPackage)
+	logrus.Infof("Collecting packages in '%s'", rootPackage)
 	imports := Packages{}
 
 	packages := Packages{}
+	testImports := Packages{}
 
 	for _, t := range goOsArch {
 		goOs, goArch := t[0], t[1]
@@ -345,15 +346,23 @@ func collectImports(rootPackage string) Packages {
 	}
 
 	for p, _ := range packages {
+		logrus.Infof("Collecting test imports of '%s'", p)
+		for _, t := range goOsArch {
+			goOs, goArch := t[0], t[1]
+			os.Setenv("GOOS", goOs)
+			os.Setenv("GOARCH", goArch)
+			testImports.merge(getTestImports(rootPackage, p))
+		}
+	}
+
+	packages.merge(testImports)
+
+	for p, _ := range packages {
 		logrus.Infof("Collecting imports for package '%s'", p)
 		for _, t := range goOsArch {
 			goOs, goArch := t[0], t[1]
 			os.Setenv("GOOS", goOs)
 			os.Setenv("GOARCH", goArch)
-			testImports := getTestImports(rootPackage, p)
-			for testImport, _ := range testImports {
-				imports.merge(listImports(rootPackage, testImport))
-			}
 			imports.merge(listImports(rootPackage, p))
 		}
 	}
