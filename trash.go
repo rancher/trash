@@ -306,11 +306,15 @@ func listImports(rootPackage, p string) Packages {
 	return imports
 }
 
-func getTestImports(p string) Packages {
+func getTestImports(rootPackage, p string) Packages {
 	r := Packages{}
 	out, _ := exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p).Output()
 	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
-		r[v] = true
+		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
+		if vendorDirLastIndex != -1 {
+			v = rootPackage + v[vendorDirLastIndex:]
+			r[v] = true
+		}
 	}
 	return r
 }
@@ -337,7 +341,6 @@ func collectImports(rootPackage string) Packages {
 		goOs, goArch := t[0], t[1]
 		os.Setenv("GOOS", goOs)
 		os.Setenv("GOARCH", goArch)
-		logrus.Infof("  using GOOS=%s GOARCH=%s", goOs, goArch)
 		packages.merge(listPackages(rootPackage))
 	}
 
@@ -347,8 +350,7 @@ func collectImports(rootPackage string) Packages {
 			goOs, goArch := t[0], t[1]
 			os.Setenv("GOOS", goOs)
 			os.Setenv("GOARCH", goArch)
-			logrus.Infof("  using GOOS=%s GOARCH=%s", goOs, goArch)
-			testImports := getTestImports(p)
+			testImports := getTestImports(rootPackage, p)
 			for testImport, _ := range testImports {
 				imports.merge(listImports(rootPackage, testImport))
 			}
