@@ -50,6 +50,8 @@ func main() {
 	exit(app.Run(os.Args))
 }
 
+var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml"}
+
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.DebugLevel)
@@ -67,6 +69,16 @@ func run(c *cli.Context) error {
 		return err
 	}
 	logrus.Debugf("dir: '%s'", dir)
+
+	_, err = os.Stat(trashFile)
+	for i := 0; os.IsNotExist(err) && i < len(possibleTrashFiles); i++ {
+		trashFile = possibleTrashFiles[i]
+		_, err = os.Stat(trashFile)
+	}
+	if os.IsNotExist(err) {
+		return err
+	}
+	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
 	if err := vendor(dir, trashFile); err != nil {
 		return err
