@@ -228,6 +228,7 @@ func fetch(i conf.Import) error {
 	return nil
 }
 
+// see https://golang.org/doc/install/source (look for "$GOOS and $GOARCH")
 var goOsArch [][]string = [][]string{
 	{"darwin", "386"},
 	{"darwin", "amd64"},
@@ -265,9 +266,10 @@ func (p Packages) merge(x Packages) Packages {
 	return p
 }
 
-func parentPackages(p string) Packages {
+func parentPackages(rootPackage, p string) Packages {
 	r := Packages{}
-	for len(p) > 0 {
+	lenRoot := len(rootPackage+"/vendor")
+	for len(p) > lenRoot {
 		r[p] = true
 		p, _ = path.Split(p)
 		if len(p) > 0 && p[len(p)-1] == '/' {
@@ -277,13 +279,16 @@ func parentPackages(p string) Packages {
 	return r
 }
 
-func listImports(p string) Packages {
+func listImports(rootPackage, p string) Packages {
 	imports := Packages{}
-	imports.merge(parentPackages(p))
 
 	out, _ := exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p).Output()
-	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
-		imports.merge(parentPackages(v))
+	for _, v := range append(strings.Fields(strings.TrimSpace(string(out))), p) {
+		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
+		if vendorDirLastIndex != -1 {
+			v = rootPackage + v[vendorDirLastIndex:]
+			imports.merge(parentPackages(rootPackage, v))
+		}
 	}
 
 	return imports
@@ -302,7 +307,7 @@ func listPackages(rootPackage string) Packages {
 	out, _ := exec.Command("go", "list", rootPackage+"/...").Output()
 	r := Packages{}
 	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
-		if strings.Index(v, rootPackage+"/vendor/") != 0 {
+		if strings.Index(v, "/vendor/") == -1 {
 			logrus.Debugf("Adding package: '%s'", v)
 			r[v] = true
 		}
@@ -311,7 +316,7 @@ func listPackages(rootPackage string) Packages {
 }
 
 func collectImports(rootPackage string) Packages {
-	logrus.Infof("Collecting imports, root package: '%s'", rootPackage)
+	logrus.Infof("Collecting subpackages of '%s'", rootPackage)
 	imports := Packages{}
 
 	packages := Packages{}
@@ -320,6 +325,7 @@ func collectImports(rootPackage string) Packages {
 		goOs, goArch := t[0], t[1]
 		os.Setenv("GOOS", goOs)
 		os.Setenv("GOARCH", goArch)
+		logrus.Infof("  using GOOS=%s GOARCH=%s", goOs, goArch)
 		packages.merge(listPackages(rootPackage))
 	}
 
@@ -329,12 +335,19 @@ func collectImports(rootPackage string) Packages {
 			goOs, goArch := t[0], t[1]
 			os.Setenv("GOOS", goOs)
 			os.Setenv("GOARCH", goArch)
+			logrus.Infof("  using GOOS=%s GOARCH=%s", goOs, goArch)
 			testImports := getTestImports(p)
 			for testImport, _ := range testImports {
-				imports.merge(listImports(testImport))
+				imports.merge(listImports(rootPackage, testImport))
 			}
-			imports.merge(listImports(p))
+			imports.merge(listImports(rootPackage, p))
 		}
+	}
+
+	imports[rootPackage+"/vendor"] = true
+
+	for p, _ := range imports {
+		logrus.Infof("Keeping: '%s'", p)
 	}
 
 	return imports
