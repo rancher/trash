@@ -12,7 +12,7 @@ func TestTrue(t *testing.T) {
 
 func TestOneMsg(t *testing.T) {
 	assert := require.New(t)
-	c := OneOff("qq")
+	c := OneStr("qq")
 
 	s, ok := <-c
 	assert.Equal("qq", s)

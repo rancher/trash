@@ -270,17 +270,8 @@ var goOsArch [][]string = [][]string{
 	{"windows", "amd64"},
 }
 
-type Packages map[string]bool
-
-func (p Packages) merge(x Packages) Packages {
-	for k := range x {
-		p[k] = true
-	}
-	return p
-}
-
-func parentPackages(rootPackage, p string) Packages {
-	r := Packages{}
+func parentPackages(rootPackage, p string) util.Packages {
+	r := util.Packages{}
 	lenRoot := len(rootPackage + "/vendor")
 	for len(p) > lenRoot {
 		r[p] = true
@@ -292,76 +283,99 @@ func parentPackages(rootPackage, p string) Packages {
 	return r
 }
 
-func listImports(rootPackage, p string) Packages {
-	imports := Packages{}
-
-	for v := range util.Merge(util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p)), util.OneOff(p)) {
-		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
-		if vendorDirLastIndex != -1 {
-			v = rootPackage + v[vendorDirLastIndex:]
-			imports.merge(parentPackages(rootPackage, v))
+func listImports(rootPackage, p string) <-chan util.Packages {
+	lnc := util.MergeStrChans(util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p)), util.OneStr(p))
+	return util.ChanPackages(func() util.Packages {
+		imports := util.Packages{}
+		for v := range lnc {
+			vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
+			if vendorDirLastIndex != -1 {
+				v = rootPackage + v[vendorDirLastIndex:]
+				imports.Merge(parentPackages(rootPackage, v))
+			}
 		}
-	}
-
-	return imports
+		return imports
+	})
 }
 
-func getTestImports(rootPackage, p string) Packages {
-	r := Packages{}
-	for v := range util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p)) {
-		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
-		if vendorDirLastIndex != -1 {
-			r[rootPackage+v[vendorDirLastIndex:]] = true
+func listTestImports(rootPackage, p string) <-chan util.Packages {
+	lnc := util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p))
+	return util.ChanPackages(func() util.Packages {
+		r := util.Packages{}
+		for v := range lnc {
+			vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
+			if vendorDirLastIndex != -1 {
+				r[rootPackage+v[vendorDirLastIndex:]] = true
+			}
 		}
-	}
-	return r
+		return r
+	})
 }
 
-func listPackages(rootPackage string) Packages {
-	r := Packages{}
-	for v := range util.CmdOutLines(exec.Command("go", "list", rootPackage+"/...")) {
-		if strings.Index(v, "/vendor/") == -1 {
-			logrus.Debugf("Adding package: '%s'", v)
-			r[v] = true
+func listPackages(rootPackage string) <-chan util.Packages {
+	lnc := util.CmdOutLines(exec.Command("go", "list", rootPackage+"/..."))
+	return util.ChanPackages(func() util.Packages {
+		r := util.Packages{}
+		for v := range lnc {
+			if strings.Index(v, "/vendor/") == -1 {
+				logrus.Debugf("Adding package: '%s'", v)
+				r[v] = true
+			}
 		}
-	}
-	return r
+		return r
+	})
 }
 
-func collectImports(rootPackage string) Packages {
+func collectImports(rootPackage string) util.Packages {
 	logrus.Infof("Collecting packages in '%s'", rootPackage)
-	imports := Packages{}
 
-	packages := Packages{}
-	testImports := Packages{}
+	imports := util.Packages{}
+	packages := util.Packages{}
+	testImports := util.Packages{}
 
-	for _, t := range goOsArch {
+	cs := make([]<-chan util.Packages, len(goOsArch))
+	for i, t := range goOsArch {
 		goOs, goArch := t[0], t[1]
 		os.Setenv("GOOS", goOs)
 		os.Setenv("GOARCH", goArch)
-		packages.merge(listPackages(rootPackage))
+		cs[i] = listPackages(rootPackage)
+	}
+	for p := range util.MergePackagesChans(cs...) {
+		packages.Merge(p)
 	}
 
+	cs = make([]<-chan util.Packages, len(packages)*len(goOsArch))
+	i := 0
 	for p := range packages {
 		logrus.Infof("Collecting test imports of '%s'", p)
 		for _, t := range goOsArch {
 			goOs, goArch := t[0], t[1]
 			os.Setenv("GOOS", goOs)
 			os.Setenv("GOARCH", goArch)
-			testImports.merge(getTestImports(rootPackage, p))
+			cs[i] = listTestImports(rootPackage, p)
+			i++
 		}
 	}
+	for p := range util.MergePackagesChans(cs...) {
+		testImports.Merge(p)
+	}
 
-	packages.merge(testImports)
+	packages.Merge(testImports)
 
+	cs = make([]<-chan util.Packages, len(packages)*len(goOsArch))
+	i = 0
 	for p := range packages {
 		logrus.Infof("Collecting imports for package '%s'", p)
 		for _, t := range goOsArch {
 			goOs, goArch := t[0], t[1]
 			os.Setenv("GOOS", goOs)
 			os.Setenv("GOARCH", goArch)
-			imports.merge(listImports(rootPackage, p))
+			cs[i] = listImports(rootPackage, p)
+			i++
 		}
+	}
+	for p := range util.MergePackagesChans(cs...) {
+		imports.Merge(p)
 	}
 
 	imports[rootPackage+"/vendor"] = true
@@ -373,7 +387,7 @@ func collectImports(rootPackage string) Packages {
 	return imports
 }
 
-func removeUnusedImports(rootPackage string, imports Packages) error {
+func removeUnusedImports(rootPackage string, imports util.Packages) error {
 	return filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
 		logrus.Debugf("removeUnusedImports, path: '%s', err: '%v'", path, err)
 		if os.IsNotExist(err) {
