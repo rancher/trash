@@ -11,6 +11,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
 	"github.com/imikushin/trash/conf"
+	"github.com/imikushin/trash/util"
 )
 
 func exit(err error) {
@@ -294,8 +295,7 @@ func parentPackages(rootPackage, p string) Packages {
 func listImports(rootPackage, p string) Packages {
 	imports := Packages{}
 
-	out, _ := exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p).Output()
-	for _, v := range append(strings.Fields(strings.TrimSpace(string(out))), p) {
+	for v := range util.Merge(util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p)), util.OneOff(p)) {
 		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
 		if vendorDirLastIndex != -1 {
 			v = rootPackage + v[vendorDirLastIndex:]
@@ -308,21 +308,18 @@ func listImports(rootPackage, p string) Packages {
 
 func getTestImports(rootPackage, p string) Packages {
 	r := Packages{}
-	out, _ := exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p).Output()
-	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
+	for v := range util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p)) {
 		vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
 		if vendorDirLastIndex != -1 {
-			v = rootPackage + v[vendorDirLastIndex:]
-			r[v] = true
+			r[rootPackage+v[vendorDirLastIndex:]] = true
 		}
 	}
 	return r
 }
 
 func listPackages(rootPackage string) Packages {
-	out, _ := exec.Command("go", "list", rootPackage+"/...").Output()
 	r := Packages{}
-	for _, v := range strings.Fields(strings.TrimSpace(string(out))) {
+	for v := range util.CmdOutLines(exec.Command("go", "list", rootPackage+"/...")) {
 		if strings.Index(v, "/vendor/") == -1 {
 			logrus.Debugf("Adding package: '%s'", v)
 			r[v] = true
