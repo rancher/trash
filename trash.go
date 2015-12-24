@@ -84,11 +84,10 @@ func run(c *cli.Context) error {
 	if err := vendor(dir, trashFile); err != nil {
 		return err
 	}
-	if !keep {
-		return cleanup(dir)
+	if keep {
+		return nil
 	}
-
-	return nil
+	return cleanup(dir)
 }
 
 func vendor(dir, trashFile string) error {
