@@ -1,8 +1,8 @@
 package util
 
 import (
-	"testing"
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func TestTrue(t *testing.T) {

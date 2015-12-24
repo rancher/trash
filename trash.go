@@ -272,7 +272,7 @@ var goOsArch [][]string = [][]string{
 type Packages map[string]bool
 
 func (p Packages) merge(x Packages) Packages {
-	for k, _ := range x {
+	for k := range x {
 		p[k] = true
 	}
 	return p
@@ -280,7 +280,7 @@ func (p Packages) merge(x Packages) Packages {
 
 func parentPackages(rootPackage, p string) Packages {
 	r := Packages{}
-	lenRoot := len(rootPackage+"/vendor")
+	lenRoot := len(rootPackage + "/vendor")
 	for len(p) > lenRoot {
 		r[p] = true
 		p, _ = path.Split(p)
@@ -345,7 +345,7 @@ func collectImports(rootPackage string) Packages {
 		packages.merge(listPackages(rootPackage))
 	}
 
-	for p, _ := range packages {
+	for p := range packages {
 		logrus.Infof("Collecting test imports of '%s'", p)
 		for _, t := range goOsArch {
 			goOs, goArch := t[0], t[1]
@@ -357,7 +357,7 @@ func collectImports(rootPackage string) Packages {
 
 	packages.merge(testImports)
 
-	for p, _ := range packages {
+	for p := range packages {
 		logrus.Infof("Collecting imports for package '%s'", p)
 		for _, t := range goOsArch {
 			goOs, goArch := t[0], t[1]
@@ -369,7 +369,7 @@ func collectImports(rootPackage string) Packages {
 
 	imports[rootPackage+"/vendor"] = true
 
-	for p, _ := range imports {
+	for p := range imports {
 		logrus.Infof("Keeping: '%s'", p)
 	}
 
