@@ -68,7 +68,7 @@ func MergePackagesChans(cs ...<-chan Packages) <-chan Packages {
 
 func MergeStrChans(cs ...<-chan string) <-chan string {
 	out := make(chan string)
-	wg := sync.WaitGroup{}
+	wg := &sync.WaitGroup{}
 	wg.Add(len(cs))
 	for _, c := range cs {
 		go func(c <-chan string) {

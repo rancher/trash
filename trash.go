@@ -109,76 +109,61 @@ func vendor(dir, trashFile string) error {
 	os.Setenv("GOPATH", trashDir)
 
 	for _, i := range trashConf.Imports {
-		if err := prepareCache(trashDir, i); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "i": i}).Error("Failed to prepare trash")
-			return err
-		}
+		prepareCache(trashDir, i)
 	}
 
 	for _, i := range trashConf.Imports {
-		if err := checkout(trashDir, i); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "i": i}).Error("Failed to checkout")
-			return err
-		}
+		checkout(trashDir, i)
 	}
 
 	vendorDir := path.Join(dir, "vendor")
 	os.RemoveAll(vendorDir)
 	os.MkdirAll(vendorDir, 0755)
 
+	logrus.Info("Copying deps...")
 	for _, i := range trashConf.Imports {
-		if err := cpy(vendorDir, trashDir, i); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "i": i}).Error("Failed to copy dep")
-			return err
-		}
+		cpy(vendorDir, trashDir, i)
 	}
+	logrus.Info("Copying deps... Done")
 
 	return nil
 }
 
-func prepareCache(trashDir string, i conf.Import) error {
+func prepareCache(trashDir string, i conf.Import) {
 	logrus.WithFields(logrus.Fields{"trashDir": trashDir, "i": i}).Debug("entering prepareCache")
 	os.Chdir(trashDir)
 	repoDir := path.Join(trashDir, "src", i.Package)
 	if err := checkGitRepo(trashDir, repoDir, i); err != nil {
-		logrus.WithFields(logrus.Fields{"err": err}).Error("checkGitRepo failed")
-		return err
+		logrus.WithFields(logrus.Fields{"err": err}).Fatal("checkGitRepo failed")
 	}
-	return nil
 }
 
-func checkout(trashDir string, i conf.Import) error {
+func checkout(trashDir string, i conf.Import) {
 	logrus.WithFields(logrus.Fields{"trashDir": trashDir, "i": i}).Debug("entering checkout")
 	repoDir := path.Join(trashDir, "src", i.Package)
 	if err := os.Chdir(repoDir); err != nil {
-		logrus.Errorf("Could not change to dir '%s'", repoDir)
-		return err
+		logrus.Fatalf("Could not change to dir '%s'", repoDir)
 	}
-	logrus.Debugf("Checkout: `git checkout -f --detach %s`", i.Version)
+	logrus.Infof("Checking out '%s', commit: '%s'", i.Package, i.Version)
 	if bytes, err := exec.Command("git", "checkout", "-f", "--detach", i.Version).CombinedOutput(); err != nil {
-		logrus.Warnf("`git checkout -f --detach %s` failed:\n%s", i.Version, bytes)
+		logrus.Debugf("Error running `git checkout -f --detach %s`:\n%s", i.Version, bytes)
 		if err := fetch(i); err != nil {
-			logrus.WithFields(logrus.Fields{"i": i}).Errorf("fetch failed")
-			return err
+			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
 		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", i.Version)
 		if bytes, err := exec.Command("git", "checkout", "-f", "--detach", i.Version).CombinedOutput(); err != nil {
-			logrus.Errorf("`git checkout -f --detach %s` failed:\n%s", i.Version, bytes)
-			return err
+			logrus.Fatalf("`git checkout -f --detach %s` failed:\n%s", i.Version, bytes)
 		}
 	}
-	return nil
 }
 
-func cpy(vendorDir, trashDir string, i conf.Import) error {
+func cpy(vendorDir, trashDir string, i conf.Import) {
 	repoDir := path.Join(trashDir, "src", i.Package)
 	target, _ := path.Split(path.Join(vendorDir, i.Package))
 	os.MkdirAll(target, 0755)
 	if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
-		logrus.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
-		return err
+		logrus.Fatalf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
 	}
-	return nil
 }
 
 func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
@@ -200,6 +185,7 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 }
 
 func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
+	logrus.Infof("Preparing cache for '%s'", i.Package)
 	os.Chdir(trashDir)
 	if err := os.RemoveAll(repoDir); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.RemoveAll() failed")
@@ -232,7 +218,7 @@ func fetch(i conf.Import) error {
 	if i.Repo != "" {
 		repo = i.Repo
 	}
-	logrus.Debug("running `git fetch -f -t %s` for %s", repo, i.Package)
+	logrus.Infof("Fetching latest commits from '%s' for '%s'", repo, i.Package)
 	if bytes, err := exec.Command("git", "fetch", "-f", "-t", repo).CombinedOutput(); err != nil {
 		logrus.Errorf("`git fetch -f -t %s` failed:\n%s", repo, bytes)
 		return err
