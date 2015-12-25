@@ -23,3 +23,42 @@ import:
 ```
 
 Run `trash` to populate ./vendor directory and remove unnecessary files. Run `trash --keep` to keep *all* checked out files in ./vendor dir.
+
+## Inspiration
+
+I really like [glide](https://github.com/Masterminds/glide), it's like a *real* package manager: you specify what you need, run `glide up` and enjoy your updated libraries. But it doesn't help solving the 2 problems I've been having lately:
+
+- All necessary library code should be vendored and checked into project repo (as imposed by the project policy)
+- Unnecessary code should be removed ~~for great justice~~ for smaller git checkouts and faster `docker build`
+
+I've been reluctant to the idea of writing `trash`, but apparently the world needs another package manager: come on, it's just going to be 300 (okay, it's ~600) lines of Go! Thanks to [@ibuildthecloud](https://github.com/ibuildthecloud) for the idea.
+
+## Help
+
+For the world's convenience, `trash` can detect glide.yaml (and glide.yml, as well as trash.yaml) and use that instead of trash.yml (and you can Force it to use any other file). Just in case, here's the program help:
+
+```
+$ trash -h
+NAME:
+   trash - Vendor imported packages and throw away the trash!
+
+USAGE:
+   trash [global options] command [command options] [arguments...]
+
+VERSION:
+   0.0.0
+
+AUTHOR(S):
+   @imikushin
+
+COMMANDS:
+   help, h	Shows a list of commands or help for one command
+
+GLOBAL OPTIONS:
+   --file, -f "trash.yml"   Vendored packages list
+   --directory, -C "."      The directory in which to run, --file is relative to this
+   --keep, -k               Keep all downloaded vendor code
+   --debug, -d              Debug logging
+   --help, -h               show help
+   --version, -v            print the version
+```
