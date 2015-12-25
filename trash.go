@@ -125,6 +125,25 @@ func vendor(dir, trashFile string) error {
 		cpy(vendorDir, trashDir, i)
 	}
 	logrus.Info("Copying deps... Done")
+	if err := filepath.Walk(vendorDir, func(path string, info os.FileInfo, err error) error {
+		if os.IsNotExist(err) {
+			return filepath.SkipDir
+		}
+		if err != nil {
+			return err
+		}
+		if !info.IsDir() {
+			return nil
+		}
+		if _, d := filepath.Split(path); d == ".git" {
+			logrus.Infof("removing '%s", path)
+			return os.RemoveAll(path)
+		}
+		return nil
+	}); err != nil {
+		logrus.Error("Error stripping .git dirs: %s", err)
+		return err
+	}
 
 	return nil
 }
