@@ -81,6 +81,7 @@ func run(c *cli.Context) error {
 	}
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
+	os.Setenv("GO15VENDOREXPERIMENT", "1")
 	if err := vendor(dir, trashFile); err != nil {
 		return err
 	}

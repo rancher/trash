@@ -4,9 +4,11 @@ Keeping the trash in your ./vendor dir to a minimum.
 
 ## How to use
 
-0. `go get github.com/imikushin/trash`
-1. Copy `trash.yml` file to your project and edit to your needs.
-2. Run `trash`
+Make sure you're using Go 1.5+ and **GO15VENDOREXPERIMENT=1** env var is exported.
+
+ 0. `go get github.com/imikushin/trash`
+ 1. Copy `trash.yml` file to your project and edit to your needs.
+ 2. Run `trash`
 
 `trash.yml` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
 ```yaml
