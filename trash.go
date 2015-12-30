@@ -220,9 +220,8 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 			return err
 		}
 	} else {
-		goGet := exec.Command("go", "get", "-d", "-f", "-u", i.Package)
-		if bytes, err := goGet.CombinedOutput(); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err}).Warnf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
+		if bytes, err := exec.Command("go", "get", "-d", "-f", "-u", i.Package).CombinedOutput(); err != nil {
+			logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
 		}
 		if err := os.MkdirAll(repoDir, 0755); err != nil {
 			logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
