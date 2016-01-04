@@ -1,5 +1,7 @@
 # Trash - Go ./vendor manager
 
+[![Join the chat at https://gitter.im/imikushin/trash](https://badges.gitter.im/imikushin/trash.svg)](https://gitter.im/imikushin/trash?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 Keeping the trash in your ./vendor dir to a minimum.
 
 ## How to use
