@@ -82,7 +82,7 @@ func run(c *cli.Context) error {
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
 	os.Setenv("GO15VENDOREXPERIMENT", "1")
-	if err := vendor(dir, trashFile); err != nil {
+	if err := vendor(keep, dir, trashFile); err != nil {
 		return err
 	}
 	if keep {
@@ -91,7 +91,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir)
 }
 
-func vendor(dir, trashFile string) error {
+func vendor(keep bool, dir, trashFile string) error {
 	logrus.WithFields(logrus.Fields{"dir": dir, "trashFile": trashFile}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -126,24 +126,26 @@ func vendor(dir, trashFile string) error {
 		cpy(vendorDir, trashDir, i)
 	}
 	logrus.Info("Copying deps... Done")
-	if err := filepath.Walk(vendorDir, func(path string, info os.FileInfo, err error) error {
-		if os.IsNotExist(err) {
-			return filepath.SkipDir
-		}
-		if err != nil {
+	if !keep {
+		if err := filepath.Walk(vendorDir, func(path string, info os.FileInfo, err error) error {
+			if os.IsNotExist(err) {
+				return filepath.SkipDir
+			}
+			if err != nil {
+				return err
+			}
+			if !info.IsDir() {
+				return nil
+			}
+			if _, d := filepath.Split(path); d == ".git" {
+				logrus.Infof("removing '%s", path)
+				return os.RemoveAll(path)
+			}
+			return nil
+		}); err != nil {
+			logrus.Error("Error stripping .git dirs: %s", err)
 			return err
 		}
-		if !info.IsDir() {
-			return nil
-		}
-		if _, d := filepath.Split(path); d == ".git" {
-			logrus.Infof("removing '%s", path)
-			return os.RemoveAll(path)
-		}
-		return nil
-	}); err != nil {
-		logrus.Error("Error stripping .git dirs: %s", err)
-		return err
 	}
 
 	return nil
