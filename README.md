@@ -59,10 +59,11 @@ COMMANDS:
    help, h	Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --file, -f "trash.yml"   Vendored packages list
-   --directory, -C "."      The directory in which to run, --file is relative to this
-   --keep, -k               Keep all downloaded vendor code
-   --debug, -d              Debug logging
-   --help, -h               show help
-   --version, -v            print the version
+   --file, -f "trash.yml"		Vendored packages list
+   --directory, -C "."			The directory in which to run, --file is relative to this
+   --keep, -k				Keep all downloaded vendor code
+   --debug, -d				Debug logging
+   --cache "/home/darren/.trash-cache"	Cache directory [$TRASH_CACHE]
+   --help, -h				show help
+   --version, -v			print the version
 ```
