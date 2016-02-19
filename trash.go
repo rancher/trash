@@ -10,9 +10,11 @@ import (
 
 	"github.com/Sirupsen/logrus"
 	"github.com/codegangsta/cli"
-	"github.com/imikushin/trash/conf"
-	"github.com/imikushin/trash/util"
+	"github.com/rancher/trash/conf"
+	"github.com/rancher/trash/util"
 )
+
+var Version string = "0.1.0"
 
 func exit(err error) {
 	if err != nil {
@@ -22,7 +24,8 @@ func exit(err error) {
 
 func main() {
 	app := cli.NewApp()
-	app.Author = "@imikushin"
+	app.Version = Version
+	app.Author = "@imikushin, @ibuildthecloud"
 	app.Usage = "Vendor imported packages and throw away the trash!"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
@@ -37,7 +40,7 @@ func main() {
 		},
 		cli.BoolFlag{
 			Name:  "keep, k",
-			Usage: "Keep all downloaded vendor code",
+			Usage: "Keep all downloaded vendor code (preserving .git dirs)",
 		},
 		cli.BoolFlag{
 			Name:  "debug, d",

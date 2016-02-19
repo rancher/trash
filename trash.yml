@@ -1,4 +1,4 @@
-package: github.com/imikushin/trash
+package: github.com/rancher/trash
 
 import:
 - package: github.com/Sirupsen/logrus
