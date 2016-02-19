@@ -43,6 +43,12 @@ func main() {
 			Name:  "debug, d",
 			Usage: "Debug logging",
 		},
+		cli.StringFlag{
+			Name:   "cache",
+			Usage:  "Cache directory",
+			Value:  path.Join(os.Getenv("HOME"), ".trash-cache"),
+			EnvVar: "TRASH_CACHE",
+		},
 	}
 	app.Action = func(c *cli.Context) {
 		exit(run(c))
@@ -82,7 +88,7 @@ func run(c *cli.Context) error {
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
 	os.Setenv("GO15VENDOREXPERIMENT", "1")
-	if err := vendor(keep, dir, trashFile); err != nil {
+	if err := vendor(keep, c.String("cache"), dir, trashFile); err != nil {
 		return err
 	}
 	if keep {
@@ -91,7 +97,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir)
 }
 
-func vendor(keep bool, dir, trashFile string) error {
+func vendor(keep bool, trashDir, dir, trashFile string) error {
 	logrus.WithFields(logrus.Fields{"dir": dir, "trashFile": trashFile}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -105,7 +111,6 @@ func vendor(keep bool, dir, trashFile string) error {
 		}
 	}
 
-	trashDir := path.Join(os.Getenv("HOME"), ".trash-cache")
 	os.MkdirAll(trashDir, 0755)
 	os.Setenv("GOPATH", trashDir)
 
