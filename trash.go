@@ -271,6 +271,8 @@ var goOsArch [][]string = [][]string{
 	{"linux", "arm64"},
 	{"linux", "ppc64"},
 	{"linux", "ppc64le"},
+	{"linux", "mips64"},
+	{"linux", "mips64le"},
 	{"netbsd", "386"},
 	{"netbsd", "amd64"},
 	{"netbsd", "arm"},
