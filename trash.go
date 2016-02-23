@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -211,7 +213,38 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 		os.Chdir(trashDir)
 		return cloneGitRepo(trashDir, repoDir, i)
 	}
+	if i.Repo != "" && !remoteExists(remoteName(i.Repo)) {
+		addRemote(i.Repo)
+	} else if !remoteExists("origin") {
+		return cloneGitRepo(trashDir, repoDir, i)
+	}
 	return nil
+}
+
+func remoteExists(remoteName string) bool {
+	lines := util.CmdOutLines(exec.Command("git", "remote"))
+	for line := range lines {
+		if strings.TrimSpace(line) == remoteName {
+			return true
+		}
+	}
+	return false
+}
+
+func addRemote(url string) {
+	remoteName := remoteName(url)
+	if bytes, err := exec.Command("git", "remote", "add", "-f", remoteName, url).CombinedOutput(); err != nil {
+		if strings.Contains(string(bytes), fmt.Sprintf("remote %s already exists", remoteName)) {
+			logrus.Warn("Already have the remote '%s'", url)
+		} else {
+			logrus.Errorf("Could not add remote '%s'", url)
+		}
+	}
+}
+
+func remoteName(url string) string {
+	ss := sha1.Sum([]byte(url))
+	return hex.EncodeToString(ss[:])[:7]
 }
 
 func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
@@ -221,23 +254,16 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.RemoveAll() failed")
 		return err
 	}
+	if bytes, err := exec.Command("go", "get", "-d", "-f", "-u", i.Package).CombinedOutput(); err != nil {
+		logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
+		if err := os.MkdirAll(repoDir, 0755); err != nil {
+			logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
+			return err
+		}
+		exec.Command("git", "init", "-q", repoDir).Run()
+	}
 	if i.Repo != "" {
-		if err := os.MkdirAll(repoDir, 0755); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
-			return err
-		}
-		if bytes, err := exec.Command("git", "clone", i.Repo, repoDir).CombinedOutput(); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err}).Errorf("`git clone %s %s` failed:\n%s", i.Repo, repoDir, bytes)
-			return err
-		}
-	} else {
-		if bytes, err := exec.Command("go", "get", "-d", "-f", "-u", i.Package).CombinedOutput(); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
-		}
-		if err := os.MkdirAll(repoDir, 0755); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
-			return err
-		}
+		addRemote(i.Repo)
 	}
 	return nil
 }
@@ -245,7 +271,7 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 func fetch(i conf.Import) error {
 	repo := "origin"
 	if i.Repo != "" {
-		repo = i.Repo
+		repo = remoteName(i.Repo)
 	}
 	logrus.Infof("Fetching latest commits from '%s' for '%s'", repo, i.Package)
 	if bytes, err := exec.Command("git", "fetch", "-f", "-t", repo).CombinedOutput(); err != nil {
