@@ -303,7 +303,7 @@ int: 123
 	})
 
 	Context("Maps", func() {
-		It("Decodes simple maps", func() {
+		It("Encodes simple maps", func() {
 			err := enc.Encode(&map[string]string{
 				"name": "Mark McGwire",
 				"hr":   "65",
@@ -315,10 +315,27 @@ int: 123
 hr: "65"
 name: Mark McGwire
 `))
-
 		})
 
-		It("Decodes mix types", func() {
+		It("sorts by key when strings otherwise by kind", func() {
+			err := enc.Encode(&map[interface{}]string{
+				1.2:    "float",
+				8:      "integer",
+				"name": "Mark McGwire",
+				"hr":   "65",
+				"avg":  "0.278",
+			})
+			Expect(err).NotTo(HaveOccurred())
+
+			Expect(buf.String()).To(Equal(`8: integer
+1.2: float
+avg: "0.278"
+hr: "65"
+name: Mark McGwire
+`))
+		})
+
+		It("encodes mix types", func() {
 			err := enc.Encode(&map[string]interface{}{
 				"name": "Mark McGwire",
 				"hr":   65,
@@ -330,12 +347,11 @@ name: Mark McGwire
 hr: 65
 name: Mark McGwire
 `))
-
 		})
 	})
 
 	Context("Sequence of Maps", func() {
-		It("decodes", func() {
+		It("encodes", func() {
 			err := enc.Encode([]map[string]interface{}{
 				{"name": "Mark McGwire",
 					"hr":  65,
@@ -360,7 +376,7 @@ name: Mark McGwire
 	})
 
 	Context("Maps of Sequence", func() {
-		It("decodes", func() {
+		It("encodes", func() {
 			err := enc.Encode(map[string][]interface{}{
 				"name": []interface{}{"Mark McGwire", "Sammy Sosa"},
 				"hr":   []interface{}{65, 63},
