@@ -39,6 +39,7 @@ func CmdOutLines(cmd *exec.Cmd) <-chan string {
 	}
 	go func() {
 		defer close(r)
+		defer out.Close()
 		defer cmd.Wait()
 		for scanner.Scan() {
 			r <- scanner.Text()
