@@ -31,12 +31,9 @@ func CmdOutLines(cmd *exec.Cmd) <-chan string {
 	r := make(chan string, 1000)
 	out, err := cmd.StdoutPipe()
 	if err != nil {
-		logrus.Fatalf("Could not obtain stdout of `%s`", strings.Join(cmd.Args, " "))
+		logrus.Fatalf("Could not obtain stdout of `%s`: %s", strings.Join(cmd.Args, " "), err)
 	}
 	scanner := bufio.NewScanner(out)
-	if err := cmd.Start(); err != nil {
-		logrus.Fatalf("Could not start `%s`", strings.Join(cmd.Args, " "))
-	}
 	go func() {
 		defer close(r)
 		defer out.Close()
@@ -45,6 +42,9 @@ func CmdOutLines(cmd *exec.Cmd) <-chan string {
 			r <- scanner.Text()
 		}
 	}()
+	if err := cmd.Start(); err != nil {
+		logrus.Fatalf("Could not start `%s`: %s", strings.Join(cmd.Args, " "), err)
+	}
 	return r
 }
 
