@@ -16,7 +16,8 @@ import (
 	"github.com/rancher/trash/util"
 )
 
-var Version string = "0.1.0"
+// Version of trash
+var Version = "0.1.1"
 
 func exit(err error) {
 	if err != nil {
@@ -53,6 +54,10 @@ func main() {
 			Usage:  "Cache directory",
 			Value:  path.Join(os.Getenv("HOME"), ".trash-cache"),
 			EnvVar: "TRASH_CACHE",
+		},
+	        cli.BoolFlag{
+			Name:   "no-cache, n",
+			Usage:  "Drop cache after vendoring",
 		},
 	}
 	app.Action = func(c *cli.Context) {
@@ -99,7 +104,7 @@ func run(c *cli.Context) error {
 	if keep {
 		return nil
 	}
-	return cleanup(dir)
+	return cleanup(dir, c.String("cache"), c.Bool("no-cache"))
 }
 
 func vendor(keep bool, trashDir, dir, trashFile string) error {
@@ -117,6 +122,7 @@ func vendor(keep bool, trashDir, dir, trashFile string) error {
 	}
 
 	os.MkdirAll(trashDir, 0755)
+    	os.Setenv("GOPATH_BEFORE_TRASH", os.Getenv("GOPATH"))
 	os.Setenv("GOPATH", trashDir)
 
 	for _, i := range trashConf.Imports {
@@ -203,10 +209,9 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 	if err := os.Chdir(repoDir); err != nil {
 		if os.IsNotExist(err) {
 			return cloneGitRepo(trashDir, repoDir, i)
-		} else {
-			logrus.Errorf("repoDir '%s' cannot be CD'ed to", repoDir)
-			return err
 		}
+	        logrus.Errorf("repoDir '%s' cannot be CD'ed to", repoDir)
+	        return err
 	}
 	if bytes, err := exec.Command("git", "status").CombinedOutput(); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err}).Warnf("`git status` failed:\n%s", bytes)
@@ -282,7 +287,7 @@ func fetch(i conf.Import) error {
 }
 
 // see https://golang.org/doc/install/source (look for "$GOOS and $GOARCH")
-var goOsArch [][]string = [][]string{
+var goOsArch = [][]string{
 	{"darwin", "386"},
 	{"darwin", "amd64"},
 	{"darwin", "arm"},
@@ -495,10 +500,12 @@ func removeEmptyDirs(rootPackage string) error {
 	return nil
 }
 
-func cleanup(dir string) error {
-	gopath := path.Join(dir, "..", "..", "..", "..")
-	gopath = filepath.Clean(gopath)
-	os.Setenv("GOPATH", gopath)
+func cleanup(dir string, trashDir string, clearCache bool) error {
+    	cacheFolder := os.Getenv("GOPATH")
+    	logrus.Debugf("clean up cache folder '%s': '%t'", cacheFolder, clearCache)
+
+	os.Setenv("GOPATH", os.Getenv("GOPATH_BEFORE_TRASH"))
+    	gopath := os.Getenv("GOPATH")
 	logrus.Debugf("gopath: '%s'", gopath)
 
 	rootPackage := dir[len(gopath+"/src/"):]
@@ -516,5 +523,13 @@ func cleanup(dir string) error {
 			logrus.Errorf("Error removing empty dirs: %v", err)
 		}
 	}
+
+    	if clearCache == true {
+        	logrus.Debugf("removing cache folder: '%s'", cacheFolder)
+        	if err := os.RemoveAll(cacheFolder); err != nil {
+            		logrus.Errorf("Error removing cache dir: %v", err)
+        	}
+    	}
+
 	return nil
 }
