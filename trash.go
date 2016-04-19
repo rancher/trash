@@ -235,7 +235,7 @@ func addRemote(url string) {
 	remoteName := remoteName(url)
 	if bytes, err := exec.Command("git", "remote", "add", "-f", remoteName, url).CombinedOutput(); err != nil {
 		if strings.Contains(string(bytes), fmt.Sprintf("remote %s already exists", remoteName)) {
-			logrus.Warn("Already have the remote '%s'", url)
+			logrus.Warnf("Already have the remote '%s'", url)
 		} else {
 			logrus.Errorf("Could not add remote '%s'", url)
 		}
