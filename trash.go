@@ -93,23 +93,23 @@ func run(c *cli.Context) error {
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
 	os.Setenv("GO15VENDOREXPERIMENT", "1")
-	if err := vendor(keep, c.String("cache"), dir, trashFile); err != nil {
+	trashConf, err := conf.Parse(trashFile)
+	if err != nil {
+		return err
+	}
+	if err := vendor(keep, c.String("cache"), dir, trashConf); err != nil {
 		return err
 	}
 	if keep {
 		return nil
 	}
-	return cleanup(dir)
+	return cleanup(dir, trashConf)
 }
 
-func vendor(keep bool, trashDir, dir, trashFile string) error {
-	logrus.WithFields(logrus.Fields{"dir": dir, "trashFile": trashFile}).Debug("vendor")
+func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
+	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
-	trashConf, err := conf.Parse(trashFile)
-	if err != nil {
-		return err
-	}
 	for _, i := range trashConf.Imports {
 		if i.Version == "" {
 			return fmt.Errorf("version not specified for package '%s'", i.Package)
@@ -495,7 +495,7 @@ func removeEmptyDirs(rootPackage string) error {
 	return nil
 }
 
-func cleanup(dir string) error {
+func cleanup(dir string, trashConf *conf.Trash) error {
 	gopath := path.Join(dir, "..", "..", "..", "..")
 	gopath = filepath.Clean(gopath)
 	os.Setenv("GOPATH", gopath)
@@ -514,6 +514,15 @@ func cleanup(dir string) error {
 		}
 		if err := removeEmptyDirs(rootPackage); err != nil {
 			logrus.Errorf("Error removing empty dirs: %v", err)
+		}
+	}
+	for _, i := range trashConf.Imports {
+		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {
+			if os.IsNotExist(err) {
+				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in trash.yml)", i.Package)
+			} else {
+				logrus.Errorf("os.Stat() failed for: %s", dir+"/vendor/"+i.Package)
+			}
 		}
 	}
 	return nil
