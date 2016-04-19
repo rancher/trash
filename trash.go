@@ -170,6 +170,17 @@ func prepareCache(trashDir string, i conf.Import) {
 	}
 }
 
+func isBranch(remote, version string) bool {
+	b := remote + "/" + version
+	logrus.Debugf("Checking if '%s' is a branch", b)
+	for l := range util.CmdOutLines(exec.Command("git", "branch", "--list", "-r", b)) {
+		if strings.TrimSpace(l) == b {
+			return true
+		}
+	}
+	return false
+}
+
 func checkout(trashDir string, i conf.Import) {
 	logrus.WithFields(logrus.Fields{"trashDir": trashDir, "i": i}).Debug("entering checkout")
 	repoDir := path.Join(trashDir, "src", i.Package)
@@ -177,14 +188,18 @@ func checkout(trashDir string, i conf.Import) {
 		logrus.Fatalf("Could not change to dir '%s'", repoDir)
 	}
 	logrus.Infof("Checking out '%s', commit: '%s'", i.Package, i.Version)
-	if bytes, err := exec.Command("git", "checkout", "-f", "--detach", i.Version).CombinedOutput(); err != nil {
-		logrus.Debugf("Error running `git checkout -f --detach %s`:\n%s", i.Version, bytes)
+	version := i.Version
+	if isBranch(remoteName(i.Repo), i.Version) {
+		version = remoteName(i.Repo) + "/" + i.Version
+	}
+	if bytes, err := exec.Command("git", "checkout", "-f", "--detach", version).CombinedOutput(); err != nil {
+		logrus.Debugf("Error running `git checkout -f --detach %s`:\n%s", version, bytes)
 		if err := fetch(i); err != nil {
 			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
-		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", i.Version)
-		if bytes, err := exec.Command("git", "checkout", "-f", "--detach", i.Version).CombinedOutput(); err != nil {
-			logrus.Fatalf("`git checkout -f --detach %s` failed:\n%s", i.Version, bytes)
+		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", version)
+		if bytes, err := exec.Command("git", "checkout", "-f", "--detach", version).CombinedOutput(); err != nil {
+			logrus.Fatalf("`git checkout -f --detach %s` failed:\n%s", version, bytes)
 		}
 	}
 }
@@ -243,6 +258,9 @@ func addRemote(url string) {
 }
 
 func remoteName(url string) string {
+	if url == "" {
+		return "origin"
+	}
 	ss := sha1.Sum([]byte(url))
 	return hex.EncodeToString(ss[:])[:7]
 }
@@ -269,13 +287,10 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 }
 
 func fetch(i conf.Import) error {
-	repo := "origin"
-	if i.Repo != "" {
-		repo = remoteName(i.Repo)
-	}
-	logrus.Infof("Fetching latest commits from '%s' for '%s'", repo, i.Package)
-	if bytes, err := exec.Command("git", "fetch", "-f", "-t", repo).CombinedOutput(); err != nil {
-		logrus.Errorf("`git fetch -f -t %s` failed:\n%s", repo, bytes)
+	remote := remoteName(i.Repo)
+	logrus.Infof("Fetching latest commits from '%s' for '%s'", remote, i.Package)
+	if bytes, err := exec.Command("git", "fetch", "-f", "-t", remote).CombinedOutput(); err != nil {
+		logrus.Errorf("`git fetch -f -t %s` failed:\n%s", remote, bytes)
 		return err
 	}
 	return nil
