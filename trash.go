@@ -249,10 +249,11 @@ func remoteExists(remoteName string) bool {
 func addRemote(url string) {
 	remoteName := remoteName(url)
 	if bytes, err := exec.Command("git", "remote", "add", "-f", remoteName, url).CombinedOutput(); err != nil {
+		logrus.Debugf("err: '%v', out: '%s'", err, string(bytes))
 		if strings.Contains(string(bytes), fmt.Sprintf("remote %s already exists", remoteName)) {
-			logrus.Warnf("Already have the remote '%s'", url)
+			logrus.Warnf("Already have the remote '%s', '%s'", remoteName, url)
 		} else {
-			logrus.Errorf("Could not add remote '%s'", url)
+			logrus.Errorf("Could not add remote '%s' '%s'", remoteName, url)
 		}
 	}
 }
@@ -281,6 +282,7 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 		exec.Command("git", "init", "-q", repoDir).Run()
 	}
 	if i.Repo != "" {
+		os.Chdir(repoDir)
 		addRemote(i.Repo)
 	}
 	return nil
