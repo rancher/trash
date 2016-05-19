@@ -4,6 +4,8 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"go/parser"
+	"go/token"
 	"os"
 	"os/exec"
 	"path"
@@ -298,37 +300,6 @@ func fetch(i conf.Import) error {
 	return nil
 }
 
-// see https://golang.org/doc/install/source (look for "$GOOS and $GOARCH")
-var goOsArch [][]string = [][]string{
-	{"darwin", "386"},
-	{"darwin", "amd64"},
-	{"darwin", "arm"},
-	{"darwin", "arm64"},
-	{"dragonfly", "amd64"},
-	{"freebsd", "386"},
-	{"freebsd", "amd64"},
-	{"freebsd", "arm"},
-	{"linux", "386"},
-	{"linux", "amd64"},
-	{"linux", "arm"},
-	{"linux", "arm64"},
-	{"linux", "ppc64"},
-	{"linux", "ppc64le"},
-	{"linux", "mips64"},
-	{"linux", "mips64le"},
-	{"netbsd", "386"},
-	{"netbsd", "amd64"},
-	{"netbsd", "arm"},
-	{"openbsd", "386"},
-	{"openbsd", "amd64"},
-	{"openbsd", "arm"},
-	{"plan9", "386"},
-	{"plan9", "amd64"},
-	{"solaris", "amd64"},
-	{"windows", "386"},
-	{"windows", "amd64"},
-}
-
 func parentPackages(root, p string) util.Packages {
 	r := util.Packages{}
 	lenRoot := len(root)
@@ -342,90 +313,88 @@ func parentPackages(root, p string) util.Packages {
 	return r
 }
 
-func listImports(rootPackage, p string) <-chan util.Packages {
-	lnc := util.MergeStrChans(util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .Deps "\n"}}`, p)), util.OneStr(p))
-	return chanPackagesFromLines(rootPackage, lnc)
+func listImports(rootPackage, pkg string) <-chan util.Packages {
+	pkgPath := pkg
+	if pkg != rootPackage && !strings.HasPrefix(pkg, rootPackage+"/") {
+		pkgPath = rootPackage + "/vendor/" + pkg
+	}
+	logrus.Debugf("listImports, pkgPath: '%s'", pkgPath)
+	sch := make(chan string)
+	noVendoredTests := func(info os.FileInfo) bool {
+		if strings.Contains(pkgPath, "/vendor/") && strings.HasSuffix(info.Name(), "_test.go") {
+			return false
+		}
+		return true
+	}
+	go func() {
+		defer close(sch)
+		ps, err := parser.ParseDir(token.NewFileSet(), pkgPath, noVendoredTests, parser.ImportsOnly)
+		if err != nil {
+			if os.IsNotExist(err) {
+				logrus.Debugf("listImports, pkgPath does not exist: %s", err)
+			} else {
+				logrus.Error("Error parsing imports, pkgPath: '%s', err: '%s'", pkgPath, err)
+			}
+			return
+		}
+		logrus.Infof("Collecting imports for package '%s'", pkg)
+		for _, p := range ps {
+			for _, f := range p.Files {
+				for _, v := range f.Imports {
+					sch <- v.Path.Value[1 : len(v.Path.Value)-1]
+					logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
+				}
+			}
+		}
+	}()
+	lnc := util.MergeStrChans(sch, util.OneStr(pkg))
+	return chanPackagesFromLines(lnc)
 }
 
-func listTestImports(rootPackage, p string) <-chan util.Packages {
-	lnc := util.CmdOutLines(exec.Command("go", "list", "-f", `{{join .TestImports "\n"}}`, p))
-	return chanPackagesFromLines(rootPackage, lnc)
-}
-
-func chanPackagesFromLines(rootPackage string, lnc <-chan string) <-chan util.Packages {
+func chanPackagesFromLines(lnc <-chan string) <-chan util.Packages {
 	return util.ChanPackages(func() util.Packages {
 		r := util.Packages{}
 		for v := range lnc {
-			vendorDirLastIndex := strings.LastIndex(v, "/vendor/")
-			if vendorDirLastIndex != -1 {
-				r[rootPackage+v[vendorDirLastIndex:]] = true
-			}
+			r[v] = true
 		}
 		return r
 	})
 }
 
-func listPackages(rootPackage string) <-chan util.Packages {
-	lnc := util.CmdOutLines(exec.Command("go", "list", rootPackage+"/..."))
-	return util.ChanPackages(func() util.Packages {
-		r := util.Packages{}
-		for v := range lnc {
-			if strings.Index(v, "/vendor/") == -1 {
-				logrus.Debugf("Adding package: '%s'", v)
-				r[v] = true
-			}
+func listPackages(rootPackage string) util.Packages {
+	r := util.Packages{}
+	filepath.Walk(rootPackage, func(path string, info os.FileInfo, err error) error {
+		if !info.IsDir() {
+			return nil
 		}
-		return r
+		if strings.HasSuffix(path, "/vendor") {
+			return filepath.SkipDir
+		}
+		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
+		if len(pkgs) > 0 {
+			logrus.Debugf("Adding package: '%s'", path)
+			r[path] = true
+		}
+		return nil
 	})
+	return r
 }
 
 func collectImports(rootPackage string) util.Packages {
 	logrus.Infof("Collecting packages in '%s'", rootPackage)
 
 	imports := util.Packages{}
-	packages := util.Packages{}
-	testImports := util.Packages{}
-
-	cs := []<-chan util.Packages{}
-	for _, t := range goOsArch {
-		goOs, goArch := t[0], t[1]
-		os.Setenv("GOOS", goOs)
-		os.Setenv("GOARCH", goArch)
-		cs = append(cs, listPackages(rootPackage))
-	}
-	for p := range util.MergePackagesChans(cs...) {
-		packages.Merge(p)
-	}
-
-	cs = []<-chan util.Packages{}
-	for p := range packages {
-		logrus.Infof("Collecting test imports of '%s'", p)
-		for _, t := range goOsArch {
-			goOs, goArch := t[0], t[1]
-			os.Setenv("GOOS", goOs)
-			os.Setenv("GOARCH", goArch)
-			cs = append(cs, listTestImports(rootPackage, p))
-		}
-	}
-	for p := range util.MergePackagesChans(cs...) {
-		testImports.Merge(p)
-	}
-
-	packages.Merge(testImports)
-
-	vendorRoot := rootPackage + "/vendor"
+	packages := listPackages(rootPackage)
 
 	seenPackages := util.Packages{}
 	for len(packages) > 0 {
 		cs := []<-chan util.Packages{}
 		for p := range packages {
-			logrus.Infof("Collecting imports for package '%s'", p)
-			for _, t := range goOsArch {
-				goOs, goArch := t[0], t[1]
-				os.Setenv("GOOS", goOs)
-				os.Setenv("GOARCH", goArch)
-				cs = append(cs, listImports(rootPackage, p))
-			}
+			cs = append(cs, listImports(rootPackage, p))
 		}
 		for ps := range util.MergePackagesChans(cs...) {
 			imports.Merge(ps)
@@ -441,16 +410,15 @@ func collectImports(rootPackage string) util.Packages {
 
 	importsParentPackages := util.Packages{}
 	for i := range imports {
-		importsParentPackages.Merge(parentPackages(vendorRoot, i))
+		importsParentPackages.Merge(parentPackages("", i))
 	}
 	imports.Merge(importsParentPackages)
 
-	imports[vendorRoot] = true
-
 	for p := range imports {
-		logrus.Infof("Keeping: '%s'", p)
+		logrus.Debugf("Keeping: '%s'", p)
 	}
 
+	logrus.Debugf("imports len: %v", len(imports))
 	return imports
 }
 
@@ -463,10 +431,11 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() {
+		if !info.IsDir() || path == rootPackage+"/vendor" {
 			return nil
 		}
-		if !imports[path] {
+		pkg := path[len(rootPackage+"/vendor/"):]
+		if !imports[pkg] {
 			logrus.Infof("Removing Unused dir: '%s'", path)
 			err := os.RemoveAll(path)
 			if err == nil {
@@ -492,6 +461,9 @@ func removeEmptyDirs(rootPackage string) error {
 			}
 			if err != nil {
 				return err
+			}
+			if path == rootPackage+"/vendor" {
+				return nil
 			}
 			if info.IsDir() {
 				err := os.Remove(path)
