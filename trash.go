@@ -408,12 +408,6 @@ func collectImports(rootPackage string) util.Packages {
 		}
 	}
 
-	importsParentPackages := util.Packages{}
-	for i := range imports {
-		importsParentPackages.Merge(parentPackages("", i))
-	}
-	imports.Merge(importsParentPackages)
-
 	for p := range imports {
 		logrus.Debugf("Keeping: '%s'", p)
 	}
@@ -423,6 +417,11 @@ func collectImports(rootPackage string) util.Packages {
 }
 
 func removeUnusedImports(rootPackage string, imports util.Packages) error {
+	importsParents := util.Packages{}
+	for i := range imports {
+		importsParents.Merge(parentPackages("", i))
+	}
+
 	return filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
 		logrus.Debugf("removeUnusedImports, path: '%s', err: '%v'", path, err)
 		if os.IsNotExist(err) {
@@ -431,12 +430,26 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 		if err != nil {
 			return err
 		}
-		if !info.IsDir() || path == rootPackage+"/vendor" {
+		if path == rootPackage+"/vendor" {
+			return nil
+		}
+		if !info.IsDir() {
+			pkg := path[len(rootPackage+"/vendor/"):strings.LastIndex(path, "/")]
+			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".go") && !imports[pkg] {
+				logrus.Infof("Removing unused source file: '%s'", path)
+				if err := os.Remove(path); err != nil {
+					if os.IsNotExist(err) {
+						return nil
+					}
+					logrus.Errorf("Error removing file: '%s', err: '%v'", path, err)
+					return err
+				}
+			}
 			return nil
 		}
 		pkg := path[len(rootPackage+"/vendor/"):]
-		if !imports[pkg] {
-			logrus.Infof("Removing Unused dir: '%s'", path)
+		if !imports[pkg] && !importsParents[pkg] {
+			logrus.Infof("Removing unused dir: '%s'", path)
 			err := os.RemoveAll(path)
 			if err == nil {
 				return filepath.SkipDir
@@ -444,7 +457,7 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 			if os.IsNotExist(err) {
 				return filepath.SkipDir
 			}
-			logrus.Errorf("Error removing Unused dir, path: '%s', err: '%v'", path, err)
+			logrus.Errorf("Error removing unused dir, path: '%s', err: '%v'", path, err)
 			return err
 		}
 		return nil
