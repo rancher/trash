@@ -48,11 +48,10 @@ func TestParseDir(t *testing.T) {
 func TestListPackages(t *testing.T) {
 	assert := require.New(t)
 	os.Chdir("../../..")
-	for p := range listPackages("github.com/rancher/trash") {
-		logrus.Debug(p)
-		assert.Equal(3, len(p))
-		assert.Contains(p, "github.com/rancher/trash")
-		assert.Contains(p, "github.com/rancher/trash/util")
-		assert.Contains(p, "github.com/rancher/trash/conf")
-	}
+	p := listPackages("github.com/rancher/trash")
+	logrus.Debug(p)
+	assert.Equal(3, len(p))
+	assert.Contains(p, "github.com/rancher/trash")
+	assert.Contains(p, "github.com/rancher/trash/util")
+	assert.Contains(p, "github.com/rancher/trash/conf")
 }
