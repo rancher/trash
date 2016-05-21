@@ -277,14 +277,17 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 	}
 	if bytes, err := exec.Command("go", "get", "-d", "-f", "-u", i.Package).CombinedOutput(); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
-		if err := os.MkdirAll(repoDir, 0755); err != nil {
-			logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
-			return err
-		}
-		exec.Command("git", "init", "-q", repoDir).Run()
+	}
+	if err := os.MkdirAll(repoDir, 0755); err != nil {
+		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
+		return err
+	}
+	os.Chdir(repoDir)
+	if err := exec.Command("git", "status").Run(); err != nil {
+		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Debug("not a git repo, creating one")
+		exec.Command("git", "init", "-q").Run()
 	}
 	if i.Repo != "" {
-		os.Chdir(repoDir)
 		addRemote(i.Repo)
 	}
 	return nil
