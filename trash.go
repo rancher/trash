@@ -370,7 +370,7 @@ func listPackages(rootPackage string) util.Packages {
 		if !info.IsDir() {
 			return nil
 		}
-		if strings.HasSuffix(path, "/vendor") {
+		if strings.HasSuffix(path, "/vendor") || strings.HasPrefix(path[strings.LastIndex(path, "/")+1:], ".") {
 			return filepath.SkipDir
 		}
 		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
