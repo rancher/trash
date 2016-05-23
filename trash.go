@@ -64,7 +64,7 @@ func main() {
 	exit(app.Run(os.Args))
 }
 
-var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml"}
+var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml", "trash.yml"}
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
@@ -367,6 +367,10 @@ func chanPackagesFromLines(lnc <-chan string) <-chan util.Packages {
 func listPackages(rootPackage string) util.Packages {
 	r := util.Packages{}
 	filepath.Walk(rootPackage, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			logrus.Error(err)
+			return err
+		}
 		if !info.IsDir() {
 			return nil
 		}
@@ -501,12 +505,11 @@ func removeEmptyDirs(rootPackage string) error {
 }
 
 func cleanup(dir string, trashConf *conf.Trash) error {
-	gopath := path.Join(dir, "..", "..", "..", "..")
-	gopath = filepath.Clean(gopath)
+	gopath := filepath.Clean(dir)
 	os.Setenv("GOPATH", gopath)
 	logrus.Debugf("gopath: '%s'", gopath)
 
-	rootPackage := dir[len(gopath+"/src/"):]
+	rootPackage := dir + "/src/"
 	logrus.Debugf("rootPackage: '%s'", rootPackage)
 
 	os.Chdir(path.Join(gopath, "src"))
