@@ -1,0 +1,13 @@
+#!/bin/sh
+set -ex
+
+cd $(dirname $0)/..
+
+rm -rf dist
+mkdir -p dist
+
+for os in linux darwin; do
+  rm -rf bin
+  GOOS=${os} ARCH=amd64 go build -o bin/trash -ldflags "-X main.Version=$(git describe --tags)" .
+  tar -czf dist/trash-${os}_amd64.tar.gz -C bin .
+done

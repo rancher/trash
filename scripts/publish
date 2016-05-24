@@ -1,0 +1,17 @@
+#!/bin/bash
+set -ex
+
+GITHUB_TOKEN=${GITHUB_TOKEN:?"GITHUB_TOKEN is not set"}
+GITHUB_USER=${GITHUB_USER:?"GITHUB_USER is not set"}
+GITHUB_REPO=${GITHUB_REPO:?"GITHUB_REPO is not set"}
+
+TAG=${1:?"no tag specified (as 1st arg)"}
+DIR=${2:?"no artifact dir specified (as 2nd arg)"}
+
+cd $(dirname $0)/..
+
+github-release release -t ${TAG} -p
+
+for f in ${DIR}/*; do
+  github-release upload -t ${TAG} -f ${f} -n $(basename ${f})
+done
