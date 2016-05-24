@@ -367,6 +367,10 @@ func chanPackagesFromLines(lnc <-chan string) <-chan util.Packages {
 func listPackages(rootPackage string) util.Packages {
 	r := util.Packages{}
 	filepath.Walk(rootPackage, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			logrus.Warning(err)
+			return err
+		}
 		if !info.IsDir() {
 			return nil
 		}
