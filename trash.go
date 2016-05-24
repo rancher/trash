@@ -18,7 +18,7 @@ import (
 	"github.com/rancher/trash/util"
 )
 
-var Version string = "0.2.0"
+var Version string = "v0.3.0-dev"
 
 func exit(err error) {
 	if err != nil {
