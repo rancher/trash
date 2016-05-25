@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"go/parser"
 	"go/token"
-	"os"
 	"testing"
 
 	"github.com/Sirupsen/logrus"
@@ -47,7 +46,6 @@ func TestParseDir(t *testing.T) {
 
 func TestListPackages(t *testing.T) {
 	assert := require.New(t)
-	os.Chdir("../../..")
 	p := listPackages("github.com/rancher/trash")
 	logrus.Debug(p)
 	assert.Equal(3, len(p))

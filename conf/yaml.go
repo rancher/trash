@@ -6,6 +6,7 @@ import (
 )
 
 type Trash struct {
+	Package string   `yaml:"package,omitempty"`
 	Imports []Import `yaml:"import,omitempty"`
 }
 
