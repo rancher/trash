@@ -3,6 +3,7 @@ package conf
 import (
 	"os"
 
+	"github.com/Sirupsen/logrus"
 	yaml "github.com/cloudfoundry-incubator/candiedyaml"
 )
 
@@ -35,7 +36,8 @@ func (t *Trash) deleteDups() {
 	seen := make(map[string]bool)
 	uniq := make([]Import, 0, len(t.Imports))
 	for _, i := range t.Imports {
-		if _, ok := seen[i.Package]; ok {
+		if seen[i.Package] {
+			logrus.Warnf("Package '%s' has duplicates (in trash.yml)", i.Package)
 			continue
 		}
 		uniq = append(uniq, i)
