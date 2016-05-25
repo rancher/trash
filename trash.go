@@ -94,7 +94,6 @@ func run(c *cli.Context) error {
 	}
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
-	os.Setenv("GO15VENDOREXPERIMENT", "1")
 	trashConf, err := conf.Parse(trashFile)
 	if err != nil {
 		return err
@@ -317,14 +316,18 @@ func parentPackages(root, p string) util.Packages {
 }
 
 func listImports(rootPackage, pkg string) <-chan util.Packages {
-	pkgPath := pkg
-	if pkg != rootPackage && !strings.HasPrefix(pkg, rootPackage+"/") {
-		pkgPath = rootPackage + "/vendor/" + pkg
+	pkgPath := "."
+	if pkg != rootPackage {
+		if strings.HasPrefix(pkg, rootPackage+"/") {
+			pkgPath = pkg[len(rootPackage)+1:]
+		} else {
+			pkgPath = "vendor/" + pkg
+		}
 	}
 	logrus.Debugf("listImports, pkgPath: '%s'", pkgPath)
 	sch := make(chan string)
 	noVendoredTests := func(info os.FileInfo) bool {
-		if strings.Contains(pkgPath, "/vendor/") && strings.HasSuffix(info.Name(), "_test.go") {
+		if strings.HasPrefix(pkgPath, "vendor/") && strings.HasSuffix(info.Name(), "_test.go") {
 			return false
 		}
 		return true
@@ -366,7 +369,7 @@ func chanPackagesFromLines(lnc <-chan string) <-chan util.Packages {
 
 func listPackages(rootPackage string) util.Packages {
 	r := util.Packages{}
-	filepath.Walk(rootPackage, func(path string, info os.FileInfo, err error) error {
+	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			logrus.Warning(err)
 			return err
@@ -374,9 +377,12 @@ func listPackages(rootPackage string) util.Packages {
 		if !info.IsDir() {
 			return nil
 		}
-		if strings.HasSuffix(path, "/vendor") || strings.HasPrefix(path[strings.LastIndex(path, "/")+1:], ".") {
+		if path == "vendor" ||
+			strings.HasSuffix(path, "vendor/") ||
+			path != "." && strings.HasPrefix(path[strings.LastIndex(path, "/")+1:], ".") {
 			return filepath.SkipDir
 		}
+		logrus.Debugf("path: '%s'", path)
 		pkgs, err := parser.ParseDir(token.NewFileSet(), path, nil, parser.PackageClauseOnly)
 		if err != nil {
 			logrus.Error(err)
@@ -384,7 +390,11 @@ func listPackages(rootPackage string) util.Packages {
 		}
 		if len(pkgs) > 0 {
 			logrus.Debugf("Adding package: '%s'", path)
-			r[path] = true
+			if path == "." {
+				r[rootPackage] = true
+			} else {
+				r[rootPackage+"/"+path] = true
+			}
 		}
 		return nil
 	})
@@ -423,13 +433,13 @@ func collectImports(rootPackage string) util.Packages {
 	return imports
 }
 
-func removeUnusedImports(rootPackage string, imports util.Packages) error {
+func removeUnusedImports(imports util.Packages) error {
 	importsParents := util.Packages{}
 	for i := range imports {
 		importsParents.Merge(parentPackages("", i))
 	}
 
-	return filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk("vendor", func(path string, info os.FileInfo, err error) error {
 		logrus.Debugf("removeUnusedImports, path: '%s', err: '%v'", path, err)
 		if os.IsNotExist(err) {
 			return filepath.SkipDir
@@ -437,11 +447,11 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 		if err != nil {
 			return err
 		}
-		if path == rootPackage+"/vendor" {
+		if path == "vendor" {
 			return nil
 		}
 		if !info.IsDir() {
-			pkg := path[len(rootPackage+"/vendor/"):strings.LastIndex(path, "/")]
+			pkg := path[len("vendor/"):strings.LastIndex(path, "/")]
 			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".go") && !imports[pkg] {
 				logrus.Infof("Removing unused source file: '%s'", path)
 				if err := os.Remove(path); err != nil {
@@ -454,7 +464,7 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 			}
 			return nil
 		}
-		pkg := path[len(rootPackage+"/vendor/"):]
+		pkg := path[len("vendor/"):]
 		if !imports[pkg] && !importsParents[pkg] {
 			logrus.Infof("Removing unused dir: '%s'", path)
 			err := os.RemoveAll(path)
@@ -471,10 +481,10 @@ func removeUnusedImports(rootPackage string, imports util.Packages) error {
 	})
 }
 
-func removeEmptyDirs(rootPackage string) error {
+func removeEmptyDirs() error {
 	for count := 1; count != 0; {
 		count = 0
-		if err := filepath.Walk(rootPackage+"/vendor", func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk("vendor", func(path string, info os.FileInfo, err error) error {
 			logrus.Debugf("removeEmptyDirs, path: '%s', err: '%v'", path, err)
 			if os.IsNotExist(err) {
 				return filepath.SkipDir
@@ -482,7 +492,7 @@ func removeEmptyDirs(rootPackage string) error {
 			if err != nil {
 				return err
 			}
-			if path == rootPackage+"/vendor" {
+			if path == "vendor" {
 				return nil
 			}
 			if info.IsDir() {
@@ -505,23 +515,30 @@ func removeEmptyDirs(rootPackage string) error {
 }
 
 func cleanup(dir string, trashConf *conf.Trash) error {
-	gopath := path.Join(dir, "..", "..", "..", "..")
-	gopath = filepath.Clean(gopath)
-	os.Setenv("GOPATH", gopath)
-	logrus.Debugf("gopath: '%s'", gopath)
+	rootPackage := trashConf.Package
+	if rootPackage == "" {
+		logrus.Warn("Project's root package not specified in trash.yml (put `package: github.com/your/project` before `import:`)")
+		logrus.Info("Trying to guess the root package from directory structure")
+		srcPath := path.Join(dir, "..", "..", "..", "..", "src")
+		if _, err := os.Stat(srcPath); err != nil {
+			logrus.Fatal("It didn't work: '%s' does not exist or something: %s", srcPath, err)
+		}
+		srcPath = filepath.Clean(srcPath)
+		logrus.Debugf("srcPath: '%s'", srcPath)
+		rootPackage = dir[len(srcPath+"/"):]
+	}
 
-	rootPackage := dir[len(gopath+"/src/"):]
 	logrus.Debugf("rootPackage: '%s'", rootPackage)
 
-	os.Chdir(path.Join(gopath, "src"))
+	os.Chdir(dir)
 
 	importsLen := 0
 	for imports := collectImports(rootPackage); importsLen != len(imports); imports = collectImports(rootPackage) {
 		importsLen = len(imports)
-		if err := removeUnusedImports(rootPackage, imports); err != nil {
+		if err := removeUnusedImports(imports); err != nil {
 			logrus.Errorf("Error removing unused dirs: %v", err)
 		}
-		if err := removeEmptyDirs(rootPackage); err != nil {
+		if err := removeEmptyDirs(); err != nil {
 			logrus.Errorf("Error removing empty dirs: %v", err)
 		}
 	}
