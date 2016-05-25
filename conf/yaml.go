@@ -1,8 +1,9 @@
 package conf
 
 import (
-	yaml "github.com/cloudfoundry-incubator/candiedyaml"
 	"os"
+
+	yaml "github.com/cloudfoundry-incubator/candiedyaml"
 )
 
 type Trash struct {
@@ -25,5 +26,20 @@ func Parse(path string) (*Trash, error) {
 	if err := yaml.NewDecoder(file).Decode(trash); err != nil {
 		return nil, err
 	}
+	trash.deleteDups()
 	return trash, nil
+}
+
+// deleteDups delete duplicate imports
+func (t *Trash) deleteDups() {
+	seen := make(map[string]bool)
+	uniq := make([]Import, 0, len(t.Imports))
+	for _, i := range t.Imports {
+		if _, ok := seen[i.Package]; ok {
+			continue
+		}
+		uniq = append(uniq, i)
+		seen[i.Package] = true
+	}
+	t.Imports = uniq
 }

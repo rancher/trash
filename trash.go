@@ -154,7 +154,7 @@ func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
 			}
 			return nil
 		}); err != nil {
-			logrus.Error("Error stripping .git dirs: %s", err)
+			logrus.Errorf("Error stripping .git dirs: %s", err)
 			return err
 		}
 	}
@@ -339,7 +339,7 @@ func listImports(rootPackage, pkg string) <-chan util.Packages {
 			if os.IsNotExist(err) {
 				logrus.Debugf("listImports, pkgPath does not exist: %s", err)
 			} else {
-				logrus.Error("Error parsing imports, pkgPath: '%s', err: '%s'", pkgPath, err)
+				logrus.Errorf("Error parsing imports, pkgPath: '%s', err: '%s'", pkgPath, err)
 			}
 			return
 		}
@@ -521,7 +521,7 @@ func cleanup(dir string, trashConf *conf.Trash) error {
 		logrus.Info("Trying to guess the root package from directory structure")
 		srcPath := path.Join(dir, "..", "..", "..", "..", "src")
 		if _, err := os.Stat(srcPath); err != nil {
-			logrus.Fatal("It didn't work: '%s' does not exist or something: %s", srcPath, err)
+			logrus.Fatalf("It didn't work: '%s' does not exist or something: %s", srcPath, err)
 		}
 		srcPath = filepath.Clean(srcPath)
 		logrus.Debugf("srcPath: '%s'", srcPath)
