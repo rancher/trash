@@ -1,7 +1,9 @@
 package conf
 
 import (
+	"bufio"
 	"os"
+	"strings"
 
 	"github.com/Sirupsen/logrus"
 	yaml "github.com/cloudfoundry-incubator/candiedyaml"
@@ -23,10 +25,37 @@ func Parse(path string) (*Trash, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer file.Close()
+
 	trash := &Trash{}
-	if err := yaml.NewDecoder(file).Decode(trash); err != nil {
+	if err := yaml.NewDecoder(file).Decode(trash); err == nil {
+		trash.deleteDups()
+		return trash, nil
+	}
+
+	_, err = file.Seek(0, 0)
+	if err != nil {
 		return nil, err
 	}
+
+	reader := bufio.NewReader(file)
+	scanner := bufio.NewScanner(reader)
+	scanner.Split(bufio.ScanLines)
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		var packageImport Import
+		if len(fields) > 2 {
+			packageImport.Repo = fields[2]
+		}
+		if len(fields) > 1 {
+			packageImport.Version = fields[1]
+		}
+		if len(fields) > 0 {
+			packageImport.Package = fields[0]
+		}
+		trash.Imports = append(trash.Imports, packageImport)
+	}
+
 	trash.deleteDups()
 	return trash, nil
 }
@@ -37,7 +66,7 @@ func (t *Trash) deleteDups() {
 	uniq := make([]Import, 0, len(t.Imports))
 	for _, i := range t.Imports {
 		if seen[i.Package] {
-			logrus.Warnf("Package '%s' has duplicates (in trash.yml)", i.Package)
+			logrus.Warnf("Package '%s' has duplicates (in trash.conf)", i.Package)
 			continue
 		}
 		uniq = append(uniq, i)
