@@ -34,7 +34,7 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "file, f",
-			Value: "trash.yml",
+			Value: "trash.conf",
 			Usage: "Vendored packages list",
 		},
 		cli.StringFlag{
@@ -64,7 +64,7 @@ func main() {
 	exit(app.Run(os.Args))
 }
 
-var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml"}
+var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml", "trash.yml"}
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
@@ -517,7 +517,6 @@ func removeEmptyDirs() error {
 func cleanup(dir string, trashConf *conf.Trash) error {
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
-		logrus.Warn("Project's root package not specified in trash.yml (put `package: github.com/your/project` before `import:`)")
 		logrus.Info("Trying to guess the root package from directory structure")
 		srcPath := path.Join(dir, "..", "..", "..", "..", "src")
 		if _, err := os.Stat(srcPath); err != nil {
@@ -545,7 +544,7 @@ func cleanup(dir string, trashConf *conf.Trash) error {
 	for _, i := range trashConf.Imports {
 		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {
 			if os.IsNotExist(err) {
-				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in trash.yml)", i.Package)
+				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in trash.conf)", i.Package)
 			} else {
 				logrus.Errorf("os.Stat() failed for: %s", dir+"/vendor/"+i.Package)
 			}

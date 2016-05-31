@@ -4,13 +4,22 @@ Keeping the trash in your ./vendor dir to a minimum.
 
 ## How to use
 
-Make sure you're using Go 1.5+ and **GO15VENDOREXPERIMENT=1** env var is exported.
+Make sure you're using Go-1.6+ (or Go-1.5.x and `GO15VENDOREXPERIMENT=1` is in your environment).
 
- 0. `go get github.com/rancher/trash`
- 1. Copy `trash.yml` file to your project and edit to your needs.
+ 0. Download and extract `trash` to your PATH
+ 1. Copy `trash.conf` file to your project and edit to your needs.
  2. Run `trash`
 
-`trash.yml` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
+`trash.conf` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
+```
+github.com/rancher/trash
+
+github.com/Sirupsen/logrus                      v0.8.7    https://github.com/imikushin/logrus.git
+github.com/codegangsta/cli                      b5232bb
+github.com/cloudfoundry-incubator/candiedyaml   5a459c2
+```
+
+Or, in YML format:
 ```yaml
 import:
 - package: github.com/Sirupsen/logrus               # package name
@@ -37,7 +46,7 @@ I'd been slightly reluctant to the idea of writing it, but apparently the world 
 
 ## Help
 
-For the world's convenience, `trash` can detect glide.yaml (and glide.yml, as well as trash.yaml) and use that instead of trash.yml (and you can Force it to use any other file). Just in case, here's the program help:
+For the world's convenience, `trash` can detect glide.yaml (and glide.yml, as well as trash.yaml) and use that instead of trash.conf (and you can Force it to use any other file). Just in case, here's the program help:
 
 ```
 $ trash -h
@@ -57,7 +66,7 @@ COMMANDS:
    help, h      Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --file, -f "trash.yml"               Vendored packages list
+   --file, -f "trash.conf"              Vendored packages list
    --directory, -C "."                  The directory in which to run, --file is relative to this
    --keep, -k                           Keep all downloaded vendor code (preserving .git dirs)
    --debug, -d                          Debug logging
