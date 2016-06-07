@@ -2,6 +2,7 @@ package conf
 
 import (
 	"bufio"
+	"fmt"
 	"os"
 	"strings"
 
@@ -10,8 +11,9 @@ import (
 )
 
 type Trash struct {
-	Package string   `yaml:"package,omitempty"`
-	Imports []Import `yaml:"import,omitempty"`
+	Package   string   `yaml:"package,omitempty"`
+	Imports   []Import `yaml:"import,omitempty"`
+	importMap map[string]Import
 }
 
 type Import struct {
@@ -73,15 +75,44 @@ func Parse(path string) (*Trash, error) {
 
 // deleteDups delete duplicate imports
 func (t *Trash) deleteDups() {
-	seen := make(map[string]bool)
 	uniq := make([]Import, 0, len(t.Imports))
+	t.importMap = map[string]Import{}
 	for _, i := range t.Imports {
-		if seen[i.Package] {
+		if _, ok := t.importMap[i.Package]; ok {
 			logrus.Warnf("Package '%s' has duplicates (in trash.conf)", i.Package)
 			continue
 		}
 		uniq = append(uniq, i)
-		seen[i.Package] = true
+		t.importMap[i.Package] = i
 	}
 	t.Imports = uniq
+}
+
+func (t *Trash) Get(pkg string) (Import, bool) {
+	i, ok := t.importMap[pkg]
+	return i, ok
+}
+
+func (t *Trash) Dump(path string) error {
+	file, err := os.Create(path)
+	defer file.Close()
+	if err != nil {
+		return err
+	}
+
+	w := bufio.NewWriter(file)
+	defer w.Flush()
+
+	fmt.Fprintln(w, "# trash.conf")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "# package")
+	fmt.Fprintln(w, t.Package)
+	fmt.Fprintln(w)
+
+	for _, i := range t.Imports {
+		fmt.Fprintln(w, i.Package, i.Version, i.Repo)
+		fmt.Println(i.Package, i.Version, i.Repo)
+	}
+
+	return nil
 }
