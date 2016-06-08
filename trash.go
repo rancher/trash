@@ -613,15 +613,12 @@ func cleanup(dir string, trashConf *conf.Trash) error {
 
 	os.Chdir(dir)
 
-	importsLen := 0
-	for imports := collectImports(rootPackage, "vendor"); importsLen != len(imports); imports = collectImports(rootPackage, "vendor") {
-		importsLen = len(imports)
-		if err := removeUnusedImports(imports); err != nil {
-			logrus.Errorf("Error removing unused dirs: %v", err)
-		}
-		if err := removeEmptyDirs(); err != nil {
-			logrus.Errorf("Error removing empty dirs: %v", err)
-		}
+	imports := collectImports(rootPackage, "vendor")
+	if err := removeUnusedImports(imports); err != nil {
+		logrus.Errorf("Error removing unused dirs: %v", err)
+	}
+	if err := removeEmptyDirs(); err != nil {
+		logrus.Errorf("Error removing empty dirs: %v", err)
 	}
 	for _, i := range trashConf.Imports {
 		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {
