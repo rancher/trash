@@ -287,12 +287,22 @@ func checkout(trashDir string, i conf.Import) {
 	}
 	logrus.Infof("Checking out '%s', commit: '%s'", i.Package, i.Version)
 	version := i.Version
-	if isBranch(remoteName(i.Repo), i.Version) {
+	if i.Version == "master" || isBranch(remoteName(i.Repo), i.Version) {
 		version = remoteName(i.Repo) + "/" + i.Version
+		if err := fetch(i); err != nil {
+			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
+		}
 	}
 	if bytes, err := exec.Command("git", "checkout", "-f", "--detach", version).CombinedOutput(); err != nil {
 		logrus.Debugf("Error running `git checkout -f --detach %s`:\n%s", version, bytes)
-		if err := fetch(i); err != nil {
+		if i.Version == "master" {
+			logrus.Warn("Failed to checkout 'master' branch: checking out the latest commit git can find")
+			bytes, err := exec.Command("git", "log", "--all", "--pretty=oneline", "--abbrev-commit", "-1").Output()
+			if err != nil {
+				logrus.Fatalf("Failed to get latest commit with `git log --all --pretty=oneline --abbrev-commit -1`: %s", err)
+			}
+			version = strings.Fields(strings.TrimSpace(string(bytes)))[0]
+		} else if err := fetch(i); err != nil {
 			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
 		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", version)
