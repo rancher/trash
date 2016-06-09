@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -31,7 +32,7 @@ func Parse(path string) (*Trash, error) {
 
 	trash := &Trash{}
 	if err := yaml.NewDecoder(file).Decode(trash); err == nil {
-		trash.deleteDups()
+		trash.Dedupe()
 		return trash, nil
 	}
 
@@ -69,23 +70,30 @@ func Parse(path string) (*Trash, error) {
 		trash.Imports = append(trash.Imports, packageImport)
 	}
 
-	trash.deleteDups()
+	trash.Dedupe()
 	return trash, nil
 }
 
-// deleteDups delete duplicate imports
-func (t *Trash) deleteDups() {
-	uniq := make([]Import, 0, len(t.Imports))
+// Dedupe deletes duplicates and sorts the imports
+func (t *Trash) Dedupe() {
 	t.importMap = map[string]Import{}
 	for _, i := range t.Imports {
 		if _, ok := t.importMap[i.Package]; ok {
-			logrus.Warnf("Package '%s' has duplicates (in trash.conf)", i.Package)
+			logrus.Debugf("Package '%s' has duplicates (in trash.conf)", i.Package)
 			continue
 		}
-		uniq = append(uniq, i)
 		t.importMap[i.Package] = i
 	}
-	t.Imports = uniq
+	ps := make([]string, 0, len(t.importMap))
+	for p := range t.importMap {
+		ps = append(ps, p)
+	}
+	sort.Strings(ps)
+	imports := make([]Import, 0, len(t.importMap))
+	for _, p := range ps {
+		imports = append(imports, t.importMap[p])
+	}
+	t.Imports = imports
 }
 
 func (t *Trash) Get(pkg string) (Import, bool) {
@@ -110,8 +118,8 @@ func (t *Trash) Dump(path string) error {
 	fmt.Fprintln(w)
 
 	for _, i := range t.Imports {
-		fmt.Fprintln(w, i.Package, i.Version, i.Repo)
-		fmt.Println(i.Package, i.Version, i.Repo)
+		s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
+		fmt.Fprintln(w, strings.TrimSpace(s))
 	}
 
 	return nil

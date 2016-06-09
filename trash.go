@@ -132,60 +132,79 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Trash) error {
 	os.MkdirAll(filepath.Join(trashDir, "src"), 0755)
 	os.Setenv("GOPATH", trashDir)
 
-	importMap := map[string]conf.Import{}
-	for _, i := range trashConf.Imports {
-		importMap[i.Package] = i
-	}
-
-	var imports util.Packages
-	importsLen := 0
 	libRoot := filepath.Join(trashDir, "src")
+	importsLen := 0
 
-	for imports = collectImports(rootPackage, libRoot); len(imports) > importsLen; imports = collectImports(rootPackage, libRoot) {
-
+	os.Chdir(dir)
+	imports := collectImports(rootPackage, libRoot)
+	for len(imports) > importsLen {
 		importsLen = len(imports)
-
 		for pkg := range imports {
 			i, ok := trashConf.Get(pkg)
 			if !ok {
 				i = conf.Import{Package: pkg}
 			}
 			i.Version = "master"
-			if pkgComponents := strings.Split(pkg, "/"); !strings.Contains(pkgComponents[0], ".") {
-				continue
-			}
 			if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 				continue
 			}
 			prepareCache(trashDir, i)
 			checkout(trashDir, i)
 		}
+		os.Chdir(dir)
+		imports = collectImports(rootPackage, libRoot)
 	}
 
 	trashConf = &conf.Trash{Package: rootPackage}
 	for pkg := range imports {
-		if pkgComponents := strings.Split(pkg, "/"); !strings.Contains(pkgComponents[0], ".") {
-			continue
-		}
 		if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 			continue
+		}
+		pkg, err := topLevel(pkg, libRoot)
+		if err != nil {
+			return err
 		}
 		i, ok := trashConf.Get(pkg)
 		if !ok {
 			i = conf.Import{Package: pkg}
 		}
-		i.Version = getLatestVersion(libRoot, pkg)
+		i.Version, err = getLatestVersion(libRoot, pkg)
+		if err != nil {
+			return err
+		}
+		os.Chdir(dir)
 		trashConf.Imports = append(trashConf.Imports, i)
 	}
+	trashConf.Dedupe()
 
 	os.Chdir(dir)
-	//trashConf.Dump(trashFile)
+	trashConf.Dump(trashFile)
 
 	return nil
 }
 
-func getLatestVersion(libRoot, pkg string) string {
-	return "master" // TODO impl
+func topLevel(pkg, libRoot string) (string, error) {
+	if err := os.Chdir(filepath.Join(libRoot, pkg)); err != nil {
+		return "", err
+	}
+	bytes, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(bytes))
+	return s[len(libRoot)+1:], nil
+}
+
+func getLatestVersion(libRoot, pkg string) (string, error) {
+	if err := os.Chdir(filepath.Join(libRoot, pkg)); err != nil {
+		return "", err
+	}
+	bytes, err := exec.Command("git", "describe", "--tags", "--always").Output()
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(bytes))
+	return s, nil
 }
 
 func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
@@ -425,7 +444,14 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 		for _, p := range ps {
 			for _, f := range p.Files {
 				for _, v := range f.Imports {
-					sch <- v.Path.Value[1 : len(v.Path.Value)-1]
+					imp := v.Path.Value[1 : len(v.Path.Value)-1]
+					if pkgComponents := strings.Split(imp, "/"); !strings.Contains(pkgComponents[0], ".") {
+						continue
+					}
+					if imp == rootPackage || strings.HasPrefix(imp, rootPackage+"/") {
+						continue
+					}
+					sch <- imp
 					logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
 				}
 			}

@@ -40,7 +40,7 @@ func TestDuplicates(t *testing.T) {
 
 	for i, d := range testData {
 		trash := Trash{"", d.imports}
-		trash.deleteDups()
+		trash.Dedupe()
 
 		if d.duplicates != len(d.imports)-len(trash.Imports) {
 			t.Errorf("Case %d failed: expected %d duplicates but removed %d", i, d.duplicates, len(d.imports)-len(trash.Imports))
