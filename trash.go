@@ -47,6 +47,10 @@ func main() {
 			Usage: "Keep all downloaded vendor code (preserving .git dirs)",
 		},
 		cli.BoolFlag{
+			Name:  "update, u",
+			Usage: "Update vendored packages, add missing ones",
+		},
+		cli.BoolFlag{
 			Name:  "debug, d",
 			Usage: "Debug logging",
 		},
@@ -64,8 +68,6 @@ func main() {
 	exit(app.Run(os.Args))
 }
 
-var possibleTrashFiles = []string{"glide.yaml", "glide.yml", "trash.yaml", "trash.yml"}
-
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
 		logrus.SetLevel(logrus.DebugLevel)
@@ -74,6 +76,8 @@ func run(c *cli.Context) error {
 	dir := c.String("directory")
 	trashFile := c.String("file")
 	keep := c.Bool("keep")
+	update := c.Bool("update")
+	trashDir := c.String("cache")
 
 	if err := os.Chdir(dir); err != nil {
 		return err
@@ -84,13 +88,21 @@ func run(c *cli.Context) error {
 	}
 	logrus.Debugf("dir: '%s'", dir)
 
-	_, err = os.Stat(trashFile)
-	for i := 0; os.IsNotExist(err) && i < len(possibleTrashFiles); i++ {
-		trashFile = possibleTrashFiles[i]
-		_, err = os.Stat(trashFile)
+	for _, trashFile = range []string{trashFile, "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
+		if _, err = os.Stat(trashFile); err == nil {
+			break
+		}
 	}
-	if os.IsNotExist(err) {
-		return err
+	if err != nil {
+		if os.IsNotExist(err) && update {
+			trashFile = c.String("file")
+			logrus.Warnf("Trash! '%s' not found, creating a new one!", trashFile)
+			if _, err = os.Create(trashFile); err != nil {
+				return err
+			}
+		} else {
+			return err
+		}
 	}
 	logrus.Infof("Trash! Reading file: '%s'", trashFile)
 
@@ -98,13 +110,101 @@ func run(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := vendor(keep, c.String("cache"), dir, trashConf); err != nil {
+	if update {
+		return updateTrash(trashDir, dir, trashFile, trashConf)
+	}
+	if err := vendor(keep, trashDir, dir, trashConf); err != nil {
 		return err
 	}
 	if keep {
 		return nil
 	}
 	return cleanup(dir, trashConf)
+}
+
+func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Trash) error {
+	// TODO collect imports, create `trashConf *conf.Trash`
+	rootPackage := trashConf.Package
+	if rootPackage == "" {
+		rootPackage = guessRootPackage(dir)
+	}
+
+	os.MkdirAll(filepath.Join(trashDir, "src"), 0755)
+	os.Setenv("GOPATH", trashDir)
+
+	libRoot := filepath.Join(trashDir, "src")
+	importsLen := 0
+
+	os.Chdir(dir)
+	imports := collectImports(rootPackage, libRoot)
+	for len(imports) > importsLen {
+		importsLen = len(imports)
+		for pkg := range imports {
+			i, ok := trashConf.Get(pkg)
+			if !ok {
+				i = conf.Import{Package: pkg}
+			}
+			i.Version = "master"
+			if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
+				continue
+			}
+			prepareCache(trashDir, i)
+			checkout(trashDir, i)
+		}
+		os.Chdir(dir)
+		imports = collectImports(rootPackage, libRoot)
+	}
+
+	trashConf = &conf.Trash{Package: rootPackage}
+	for pkg := range imports {
+		if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
+			continue
+		}
+		pkg, err := topLevel(pkg, libRoot)
+		if err != nil {
+			return err
+		}
+		i, ok := trashConf.Get(pkg)
+		if !ok {
+			i = conf.Import{Package: pkg}
+		}
+		i.Version, err = getLatestVersion(libRoot, pkg)
+		if err != nil {
+			return err
+		}
+		os.Chdir(dir)
+		trashConf.Imports = append(trashConf.Imports, i)
+	}
+	trashConf.Dedupe()
+
+	os.Chdir(dir)
+	trashConf.Dump(trashFile)
+
+	return nil
+}
+
+func topLevel(pkg, libRoot string) (string, error) {
+	if err := os.Chdir(filepath.Join(libRoot, pkg)); err != nil {
+		return "", err
+	}
+	bytes, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(bytes))
+	return s[len(libRoot)+1:], nil
+}
+
+func getLatestVersion(libRoot, pkg string) (string, error) {
+	if err := os.Chdir(filepath.Join(libRoot, pkg)); err != nil {
+		return "", err
+	}
+	bytes, err := exec.Command("git", "describe", "--tags", "--always").Output()
+	if err != nil {
+		return "", err
+	}
+	s := strings.TrimSpace(string(bytes))
+	return s, nil
 }
 
 func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
@@ -122,9 +222,6 @@ func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
 
 	for _, i := range trashConf.Imports {
 		prepareCache(trashDir, i)
-	}
-
-	for _, i := range trashConf.Imports {
 		checkout(trashDir, i)
 	}
 
@@ -190,12 +287,22 @@ func checkout(trashDir string, i conf.Import) {
 	}
 	logrus.Infof("Checking out '%s', commit: '%s'", i.Package, i.Version)
 	version := i.Version
-	if isBranch(remoteName(i.Repo), i.Version) {
+	if i.Version == "master" || isBranch(remoteName(i.Repo), i.Version) {
 		version = remoteName(i.Repo) + "/" + i.Version
+		if err := fetch(i); err != nil {
+			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
+		}
 	}
 	if bytes, err := exec.Command("git", "checkout", "-f", "--detach", version).CombinedOutput(); err != nil {
 		logrus.Debugf("Error running `git checkout -f --detach %s`:\n%s", version, bytes)
-		if err := fetch(i); err != nil {
+		if i.Version == "master" {
+			logrus.Warn("Failed to checkout 'master' branch: checking out the latest commit git can find")
+			bytes, err := exec.Command("git", "log", "--all", "--pretty=oneline", "--abbrev-commit", "-1").Output()
+			if err != nil {
+				logrus.Fatalf("Failed to get latest commit with `git log --all --pretty=oneline --abbrev-commit -1`: %s", err)
+			}
+			version = strings.Fields(strings.TrimSpace(string(bytes)))[0]
+		} else if err := fetch(i); err != nil {
 			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
 		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", version)
@@ -315,19 +422,19 @@ func parentPackages(root, p string) util.Packages {
 	return r
 }
 
-func listImports(rootPackage, pkg string) <-chan util.Packages {
+func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 	pkgPath := "."
 	if pkg != rootPackage {
 		if strings.HasPrefix(pkg, rootPackage+"/") {
 			pkgPath = pkg[len(rootPackage)+1:]
 		} else {
-			pkgPath = "vendor/" + pkg
+			pkgPath = libRoot + "/" + pkg
 		}
 	}
 	logrus.Debugf("listImports, pkgPath: '%s'", pkgPath)
 	sch := make(chan string)
 	noVendoredTests := func(info os.FileInfo) bool {
-		if strings.HasPrefix(pkgPath, "vendor/") && strings.HasSuffix(info.Name(), "_test.go") {
+		if strings.HasPrefix(pkgPath, libRoot+"/") && strings.HasSuffix(info.Name(), "_test.go") {
 			return false
 		}
 		return true
@@ -347,7 +454,14 @@ func listImports(rootPackage, pkg string) <-chan util.Packages {
 		for _, p := range ps {
 			for _, f := range p.Files {
 				for _, v := range f.Imports {
-					sch <- v.Path.Value[1 : len(v.Path.Value)-1]
+					imp := v.Path.Value[1 : len(v.Path.Value)-1]
+					if pkgComponents := strings.Split(imp, "/"); !strings.Contains(pkgComponents[0], ".") {
+						continue
+					}
+					if imp == rootPackage || strings.HasPrefix(imp, rootPackage+"/") {
+						continue
+					}
+					sch <- imp
 					logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
 				}
 			}
@@ -401,7 +515,7 @@ func listPackages(rootPackage string) util.Packages {
 	return r
 }
 
-func collectImports(rootPackage string) util.Packages {
+func collectImports(rootPackage, libRoot string) util.Packages {
 	logrus.Infof("Collecting packages in '%s'", rootPackage)
 
 	imports := util.Packages{}
@@ -411,7 +525,7 @@ func collectImports(rootPackage string) util.Packages {
 	for len(packages) > 0 {
 		cs := []<-chan util.Packages{}
 		for p := range packages {
-			cs = append(cs, listImports(rootPackage, p))
+			cs = append(cs, listImports(rootPackage, libRoot, p))
 		}
 		for ps := range util.MergePackagesChans(cs...) {
 			imports.Merge(ps)
@@ -514,32 +628,33 @@ func removeEmptyDirs() error {
 	return nil
 }
 
+func guessRootPackage(dir string) string {
+	logrus.Info("Trying to guess the root package from directory structure")
+	srcPath := path.Join(dir, "..", "..", "..", "..", "src")
+	if _, err := os.Stat(srcPath); err != nil {
+		logrus.Fatalf("It didn't work: '%s' does not exist or something: %s", srcPath, err)
+	}
+	srcPath = filepath.Clean(srcPath)
+	logrus.Debugf("srcPath: '%s'", srcPath)
+	return dir[len(srcPath+"/"):]
+}
+
 func cleanup(dir string, trashConf *conf.Trash) error {
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
-		logrus.Info("Trying to guess the root package from directory structure")
-		srcPath := path.Join(dir, "..", "..", "..", "..", "src")
-		if _, err := os.Stat(srcPath); err != nil {
-			logrus.Fatalf("It didn't work: '%s' does not exist or something: %s", srcPath, err)
-		}
-		srcPath = filepath.Clean(srcPath)
-		logrus.Debugf("srcPath: '%s'", srcPath)
-		rootPackage = dir[len(srcPath+"/"):]
+		rootPackage = guessRootPackage(dir)
 	}
 
 	logrus.Debugf("rootPackage: '%s'", rootPackage)
 
 	os.Chdir(dir)
 
-	importsLen := 0
-	for imports := collectImports(rootPackage); importsLen != len(imports); imports = collectImports(rootPackage) {
-		importsLen = len(imports)
-		if err := removeUnusedImports(imports); err != nil {
-			logrus.Errorf("Error removing unused dirs: %v", err)
-		}
-		if err := removeEmptyDirs(); err != nil {
-			logrus.Errorf("Error removing empty dirs: %v", err)
-		}
+	imports := collectImports(rootPackage, "vendor")
+	if err := removeUnusedImports(imports); err != nil {
+		logrus.Errorf("Error removing unused dirs: %v", err)
+	}
+	if err := removeEmptyDirs(); err != nil {
+		logrus.Errorf("Error removing empty dirs: %v", err)
 	}
 	for _, i := range trashConf.Imports {
 		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {

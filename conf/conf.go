@@ -2,7 +2,9 @@ package conf
 
 import (
 	"bufio"
+	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -10,8 +12,9 @@ import (
 )
 
 type Trash struct {
-	Package string   `yaml:"package,omitempty"`
-	Imports []Import `yaml:"import,omitempty"`
+	Package   string   `yaml:"package,omitempty"`
+	Imports   []Import `yaml:"import,omitempty"`
+	importMap map[string]Import
 }
 
 type Import struct {
@@ -29,7 +32,7 @@ func Parse(path string) (*Trash, error) {
 
 	trash := &Trash{}
 	if err := yaml.NewDecoder(file).Decode(trash); err == nil {
-		trash.deleteDups()
+		trash.Dedupe()
 		return trash, nil
 	}
 
@@ -67,21 +70,57 @@ func Parse(path string) (*Trash, error) {
 		trash.Imports = append(trash.Imports, packageImport)
 	}
 
-	trash.deleteDups()
+	trash.Dedupe()
 	return trash, nil
 }
 
-// deleteDups delete duplicate imports
-func (t *Trash) deleteDups() {
-	seen := make(map[string]bool)
-	uniq := make([]Import, 0, len(t.Imports))
+// Dedupe deletes duplicates and sorts the imports
+func (t *Trash) Dedupe() {
+	t.importMap = map[string]Import{}
 	for _, i := range t.Imports {
-		if seen[i.Package] {
-			logrus.Warnf("Package '%s' has duplicates (in trash.conf)", i.Package)
+		if _, ok := t.importMap[i.Package]; ok {
+			logrus.Debugf("Package '%s' has duplicates (in trash.conf)", i.Package)
 			continue
 		}
-		uniq = append(uniq, i)
-		seen[i.Package] = true
+		t.importMap[i.Package] = i
 	}
-	t.Imports = uniq
+	ps := make([]string, 0, len(t.importMap))
+	for p := range t.importMap {
+		ps = append(ps, p)
+	}
+	sort.Strings(ps)
+	imports := make([]Import, 0, len(t.importMap))
+	for _, p := range ps {
+		imports = append(imports, t.importMap[p])
+	}
+	t.Imports = imports
+}
+
+func (t *Trash) Get(pkg string) (Import, bool) {
+	i, ok := t.importMap[pkg]
+	return i, ok
+}
+
+func (t *Trash) Dump(path string) error {
+	file, err := os.Create(path)
+	defer file.Close()
+	if err != nil {
+		return err
+	}
+
+	w := bufio.NewWriter(file)
+	defer w.Flush()
+
+	fmt.Fprintln(w, "# trash.conf")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "# package")
+	fmt.Fprintln(w, t.Package)
+	fmt.Fprintln(w)
+
+	for _, i := range t.Imports {
+		s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
+		fmt.Fprintln(w, strings.TrimSpace(s))
+	}
+
+	return nil
 }
