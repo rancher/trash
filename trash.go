@@ -13,7 +13,8 @@ import (
 	"strings"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/codegangsta/cli"
+	"github.com/urfave/cli"
+
 	"github.com/rancher/trash/conf"
 	"github.com/rancher/trash/util"
 )
@@ -61,11 +62,9 @@ func main() {
 			EnvVar: "TRASH_CACHE",
 		},
 	}
-	app.Action = func(c *cli.Context) {
-		exit(run(c))
-	}
+	app.Action = run
 
-	exit(app.Run(os.Args))
+	app.Run(os.Args)
 }
 
 func run(c *cli.Context) error {
