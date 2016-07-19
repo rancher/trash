@@ -78,10 +78,15 @@ func run(c *cli.Context) error {
 	update := c.Bool("update")
 	trashDir := c.String("cache")
 
+	trashDir, err := filepath.Abs(trashDir)
+	if err != nil {
+		return err
+	}
+
 	if err := os.Chdir(dir); err != nil {
 		return err
 	}
-	dir, err := os.Getwd()
+	dir, err = os.Getwd()
 	if err != nil {
 		return err
 	}
@@ -330,8 +335,7 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 			return err
 		}
 	}
-	if bytes, err := exec.Command("git", "status").CombinedOutput(); err != nil {
-		logrus.WithFields(logrus.Fields{"err": err}).Warnf("`git status` failed:\n%s", bytes)
+	if !isCurrentDirARepo(trashDir) {
 		os.Chdir(trashDir)
 		return cloneGitRepo(trashDir, repoDir, i)
 	}
@@ -341,6 +345,19 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 		return cloneGitRepo(trashDir, repoDir, i)
 	}
 	return nil
+}
+
+func isCurrentDirARepo(trashDir string) bool {
+	d, err := os.Getwd()
+	if err != nil {
+		logrus.Fatalf("Error getting current dir: %s", err)
+	}
+	bytes, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	if err != nil {
+		logrus.Debugf("Not in a git repo: `git rev-parse --show-toplevel` in dir %s failed: %s", d, err)
+		return false
+	}
+	return strings.HasPrefix(string(bytes), trashDir+"/src/")
 }
 
 func remoteExists(remoteName string) bool {
@@ -388,8 +405,8 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
 		return err
 	}
 	os.Chdir(repoDir)
-	if err := exec.Command("git", "status").Run(); err != nil {
-		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Debug("not a git repo, creating one")
+	if !isCurrentDirARepo(trashDir) {
+		logrus.WithFields(logrus.Fields{"repoDir": repoDir}).Debug("not a git repo, creating one")
 		exec.Command("git", "init", "-q").Run()
 	}
 	if i.Repo != "" {
