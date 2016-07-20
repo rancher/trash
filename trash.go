@@ -21,12 +21,6 @@ import (
 
 var Version string = "v0.3.0-dev"
 
-func exit(err error) {
-	if err != nil {
-		logrus.Fatal(err)
-	}
-}
-
 func main() {
 	app := cli.NewApp()
 	app.Version = Version
@@ -61,11 +55,18 @@ func main() {
 			Value:  path.Join(os.Getenv("HOME"), ".trash-cache"),
 			EnvVar: "TRASH_CACHE",
 		},
+		cli.StringFlag{
+			Name:   "gopath",
+			Hidden: true,
+			EnvVar: "GOPATH",
+		},
 	}
 	app.Action = run
 
 	app.Run(os.Args)
 }
+
+var gopath string
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
@@ -77,6 +78,7 @@ func run(c *cli.Context) error {
 	keep := c.Bool("keep")
 	update := c.Bool("update")
 	trashDir := c.String("cache")
+	gopath = c.String("gopath")
 
 	trashDir, err := filepath.Abs(trashDir)
 	if err != nil {
@@ -645,12 +647,18 @@ func removeEmptyDirs() error {
 }
 
 func guessRootPackage(dir string) string {
-	logrus.Info("Trying to guess the root package from directory structure")
-	srcPath := path.Join(dir, "..", "..", "..", "..", "src")
-	if _, err := os.Stat(srcPath); err != nil {
-		logrus.Fatalf("It didn't work: '%s' does not exist or something: %s", srcPath, err)
+	logrus.Warn("Trying to guess the root package using GOPATH. It's best to specify it in `trash.conf`")
+	logrus.Warnf("GOPATH is '%s'", gopath)
+	if gopath == "" || strings.Contains(gopath, ":") {
+		logrus.Fatalf("GOPATH not set or is not a single path. You need to specify the root package!")
 	}
-	srcPath = filepath.Clean(srcPath)
+	srcPath := filepath.Clean(path.Join(gopath, "src"))
+	if !strings.HasPrefix(dir, srcPath+"/") {
+		logrus.Fatalf("Your project dir is not a subdir of $GOPATH/src. You need to specify the root package!")
+	}
+	if _, err := os.Stat(srcPath); err != nil {
+		logrus.Fatalf("It didn't work: $GOPATH/src does not exist or something: %s", err)
+	}
 	logrus.Debugf("srcPath: '%s'", srcPath)
 	return dir[len(srcPath+"/"):]
 }
