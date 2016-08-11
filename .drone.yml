@@ -1,3 +1,7 @@
+workspace:
+  base: /go
+  path: src/github.com/rancher/trash
+
 pipeline:
   build:
     image: golang:1.6.3
