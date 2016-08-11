@@ -1,0 +1,6 @@
+---
+pipeline:
+  build:
+    image: alpine:3.4
+    commands:
+      - fail
