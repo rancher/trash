@@ -4,7 +4,7 @@ Keeping the trash in your ./vendor dir to a minimum.
 
 ## How to use
 
-Make sure you're using Go-1.6+ (or Go-1.5.x and `GO15VENDOREXPERIMENT=1` is in your environment).
+Make sure you're using go1.6 or later version.
 
  0. Download and extract `trash` to your PATH
  1. Copy `trash.conf` file to your project and edit to your needs.
@@ -57,20 +57,21 @@ USAGE:
    trash [global options] command [command options] [arguments...]
 
 VERSION:
-   0.1.0
+   v0.2.3
 
 AUTHOR(S):
    @imikushin, @ibuildthecloud
 
 COMMANDS:
-   help, h      Shows a list of commands or help for one command
+     help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --file, -f "trash.conf"              Vendored packages list
-   --directory, -C "."                  The directory in which to run, --file is relative to this
-   --keep, -k                           Keep all downloaded vendor code (preserving .git dirs)
-   --debug, -d                          Debug logging
-   --cache "/home/darren/.trash-cache"  Cache directory [$TRASH_CACHE]
-   --help, -h                           show help
-   --version, -v                        print the version
+   --file value, -f value       Vendored packages list (default: "trash.conf")
+   --directory value, -C value  The directory in which to run, --file is relative to this (default: ".")
+   --keep, -k                   Keep all downloaded vendor code (preserving .git dirs)
+   --update, -u                 Update vendored packages, add missing ones
+   --debug, -d                  Debug logging
+   --cache value                Cache directory (default: "/Users/ivan/.trash-cache") [$TRASH_CACHE]
+   --help, -h                   show help
+   --version, -v                print the version
 ```
