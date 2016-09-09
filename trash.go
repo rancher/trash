@@ -29,7 +29,7 @@ func main() {
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:  "file, f",
-			Value: "trash.conf",
+			Value: "vendor.conf",
 			Usage: "Vendored packages list",
 		},
 		cli.StringFlag{
@@ -94,7 +94,7 @@ func run(c *cli.Context) error {
 	}
 	logrus.Debugf("dir: '%s'", dir)
 
-	for _, trashFile = range []string{trashFile, "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
+	for _, trashFile = range []string{trashFile, "trash.conf", "vndr.cfg", "vendor.manifest", "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
 		if _, err = os.Stat(trashFile); err == nil {
 			break
 		}
