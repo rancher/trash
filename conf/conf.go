@@ -11,10 +11,11 @@ import (
 	yaml "github.com/cloudfoundry-incubator/candiedyaml"
 )
 
-type Trash struct {
+type Conf struct {
 	Package   string   `yaml:"package,omitempty"`
 	Imports   []Import `yaml:"import,omitempty"`
 	importMap map[string]Import
+	confFile  string
 }
 
 type Import struct {
@@ -23,20 +24,20 @@ type Import struct {
 	Repo    string `yaml:"repo,omitempty"`
 }
 
-func Parse(path string) (*Trash, error) {
+func Parse(path string) (*Conf, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	trash := &Trash{}
-	if err := yaml.NewDecoder(file).Decode(trash); err == nil {
-		trash.Dedupe()
-		return trash, nil
+	trashConf := &Conf{confFile: path}
+	if err := yaml.NewDecoder(file).Decode(trashConf); err == nil {
+		trashConf.Dedupe()
+		return trashConf, nil
 	}
 
-	trash = &Trash{}
+	trashConf = &Conf{confFile: path}
 	_, err = file.Seek(0, 0)
 	if err != nil {
 		return nil, err
@@ -53,9 +54,9 @@ func Parse(path string) (*Trash, error) {
 		}
 		fields := strings.Fields(line)
 
-		if len(fields) == 1 && trash.Package == "" {
-			trash.Package = fields[0] // use the first 1-field line as the root package
-			logrus.Infof("Using '%s' as the project's root package (from trash.conf)", trash.Package)
+		if len(fields) == 1 && trashConf.Package == "" {
+			trashConf.Package = fields[0] // use the first 1-field line as the root package
+			logrus.Infof("Using '%s' as the project's root package (from %s)", trashConf.Package, trashConf.confFile)
 			continue
 		}
 
@@ -67,19 +68,19 @@ func Parse(path string) (*Trash, error) {
 		if len(fields) > 1 {
 			packageImport.Version = fields[1]
 		}
-		trash.Imports = append(trash.Imports, packageImport)
+		trashConf.Imports = append(trashConf.Imports, packageImport)
 	}
 
-	trash.Dedupe()
-	return trash, nil
+	trashConf.Dedupe()
+	return trashConf, nil
 }
 
 // Dedupe deletes duplicates and sorts the imports
-func (t *Trash) Dedupe() {
+func (t *Conf) Dedupe() {
 	t.importMap = map[string]Import{}
 	for _, i := range t.Imports {
 		if _, ok := t.importMap[i.Package]; ok {
-			logrus.Debugf("Package '%s' has duplicates (in trash.conf)", i.Package)
+			logrus.Debugf("Package '%s' has duplicates (in %s)", i.Package, t.confFile)
 			continue
 		}
 		t.importMap[i.Package] = i
@@ -96,12 +97,12 @@ func (t *Trash) Dedupe() {
 	t.Imports = imports
 }
 
-func (t *Trash) Get(pkg string) (Import, bool) {
+func (t *Conf) Get(pkg string) (Import, bool) {
 	i, ok := t.importMap[pkg]
 	return i, ok
 }
 
-func (t *Trash) Dump(path string) error {
+func (t *Conf) Dump(path string) error {
 	file, err := os.Create(path)
 	defer file.Close()
 	if err != nil {
@@ -111,8 +112,6 @@ func (t *Trash) Dump(path string) error {
 	w := bufio.NewWriter(file)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "# trash.conf")
-	fmt.Fprintln(w)
 	fmt.Fprintln(w, "# package")
 	fmt.Fprintln(w, t.Package)
 	fmt.Fprintln(w)
@@ -123,4 +122,8 @@ func (t *Trash) Dump(path string) error {
 	}
 
 	return nil
+}
+
+func (t *Conf) ConfFile() string {
+	return t.confFile
 }
