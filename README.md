@@ -7,10 +7,10 @@ Keeping the trash in your ./vendor dir to a minimum.
 Make sure you're using go1.6 or later version.
 
  0. Download and extract `trash` to your PATH
- 1. Copy `trash.conf` file to your project and edit to your needs.
+ 1. Copy `vendor.conf` file to your project and edit to your needs.
  2. Run `trash`
 
-`trash.conf` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
+`vendor.conf` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
 ```
 github.com/rancher/trash
 
@@ -46,7 +46,7 @@ I'd been slightly reluctant to the idea of writing it, but apparently the world 
 
 ## Help
 
-For the world's convenience, `trash` can detect glide.yaml (and glide.yml, as well as trash.yaml) and use that instead of trash.conf (and you can Force it to use any other file). Just in case, here's the program help:
+For the world's convenience, `trash` can detect glide.yaml (and glide.yml, as well as trash.yaml) and use that instead of vendor.conf (and you can Force it to use any other file). Just in case, here's the program help:
 
 ```
 $ trash -h
@@ -66,7 +66,7 @@ COMMANDS:
      help, h  Shows a list of commands or help for one command
 
 GLOBAL OPTIONS:
-   --file value, -f value       Vendored packages list (default: "trash.conf")
+   --file value, -f value       Vendored packages list (default: "vendor.conf")
    --directory value, -C value  The directory in which to run, --file is relative to this (default: ".")
    --keep, -k                   Keep all downloaded vendor code (preserving .git dirs)
    --update, -u                 Update vendored packages, add missing ones

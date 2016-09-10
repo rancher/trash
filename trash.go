@@ -74,7 +74,7 @@ func run(c *cli.Context) error {
 	}
 
 	dir := c.String("directory")
-	trashFile := c.String("file")
+	confFile := c.String("file")
 	keep := c.Bool("keep")
 	update := c.Bool("update")
 	trashDir := c.String("cache")
@@ -94,30 +94,30 @@ func run(c *cli.Context) error {
 	}
 	logrus.Debugf("dir: '%s'", dir)
 
-	for _, trashFile = range []string{trashFile, "trash.conf", "vndr.cfg", "vendor.manifest", "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
-		if _, err = os.Stat(trashFile); err == nil {
+	for _, confFile = range []string{confFile, "trash.conf", "vndr.cfg", "vendor.manifest", "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
+		if _, err = os.Stat(confFile); err == nil {
 			break
 		}
 	}
 	if err != nil {
 		if os.IsNotExist(err) && update {
-			trashFile = c.String("file")
-			logrus.Warnf("Trash! '%s' not found, creating a new one!", trashFile)
-			if _, err = os.Create(trashFile); err != nil {
+			confFile = c.String("file")
+			logrus.Warnf("Trash! '%s' not found, creating a new one!", confFile)
+			if _, err = os.Create(confFile); err != nil {
 				return err
 			}
 		} else {
 			return err
 		}
 	}
-	logrus.Infof("Trash! Reading file: '%s'", trashFile)
+	logrus.Infof("Trash! Reading file: '%s'", confFile)
 
-	trashConf, err := conf.Parse(trashFile)
+	trashConf, err := conf.Parse(confFile)
 	if err != nil {
 		return err
 	}
 	if update {
-		return updateTrash(trashDir, dir, trashFile, trashConf)
+		return updateTrash(trashDir, dir, confFile, trashConf)
 	}
 	if err := vendor(keep, trashDir, dir, trashConf); err != nil {
 		return err
@@ -128,7 +128,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir, trashConf)
 }
 
-func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Trash) error {
+func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 	// TODO collect imports, create `trashConf *conf.Trash`
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
@@ -161,7 +161,7 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Trash) error {
 		imports = collectImports(rootPackage, libRoot)
 	}
 
-	trashConf = &conf.Trash{Package: rootPackage}
+	trashConf = &conf.Conf{Package: rootPackage}
 	for pkg := range imports {
 		if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 			continue
@@ -213,7 +213,7 @@ func getLatestVersion(libRoot, pkg string) (string, error) {
 	return s, nil
 }
 
-func vendor(keep bool, trashDir, dir string, trashConf *conf.Trash) error {
+func vendor(keep bool, trashDir, dir string, trashConf *conf.Conf) error {
 	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -647,7 +647,7 @@ func removeEmptyDirs() error {
 }
 
 func guessRootPackage(dir string) string {
-	logrus.Warn("Trying to guess the root package using GOPATH. It's best to specify it in `trash.conf`")
+	logrus.Warn("Trying to guess the root package using GOPATH. It's best to specify it in `vendor.conf`")
 	logrus.Warnf("GOPATH is '%s'", gopath)
 	if gopath == "" || strings.Contains(gopath, ":") {
 		logrus.Fatalf("GOPATH not set or is not a single path. You need to specify the root package!")
@@ -663,7 +663,7 @@ func guessRootPackage(dir string) string {
 	return dir[len(srcPath+"/"):]
 }
 
-func cleanup(dir string, trashConf *conf.Trash) error {
+func cleanup(dir string, trashConf *conf.Conf) error {
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
 		rootPackage = guessRootPackage(dir)
@@ -683,7 +683,7 @@ func cleanup(dir string, trashConf *conf.Trash) error {
 	for _, i := range trashConf.Imports {
 		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {
 			if os.IsNotExist(err) {
-				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in trash.conf)", i.Package)
+				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in %s)", i.Package, trashConf.ConfFile())
 			} else {
 				logrus.Errorf("os.Stat() failed for: %s", dir+"/vendor/"+i.Package)
 			}
