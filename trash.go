@@ -161,7 +161,8 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 		imports = collectImports(rootPackage, libRoot)
 	}
 
-	trashConf = &conf.Conf{Package: rootPackage}
+
+	newTrashConf := &conf.Conf{Package: rootPackage}
 	for pkg := range imports {
 		if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 			continue
@@ -179,12 +180,12 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 			return err
 		}
 		os.Chdir(dir)
-		trashConf.Imports = append(trashConf.Imports, i)
+		newTrashConf.Imports = append(newTrashConf.Imports, i)
 	}
-	trashConf.Dedupe()
+	newTrashConf.Dedupe()
 
 	os.Chdir(dir)
-	trashConf.Dump(trashFile)
+	newTrashConf.Dump(trashFile)
 
 	return nil
 }
