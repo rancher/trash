@@ -102,7 +102,7 @@ func (t *Conf) Get(pkg string) (Import, bool) {
 	return i, ok
 }
 
-func (t *Conf) Dump(path string) error {
+func (t *Conf) Dump(path string, useYaml bool) error {
 	file, err := os.Create(path)
 	defer file.Close()
 	if err != nil {
@@ -112,13 +112,22 @@ func (t *Conf) Dump(path string) error {
 	w := bufio.NewWriter(file)
 	defer w.Flush()
 
-	fmt.Fprintln(w, "# package")
-	fmt.Fprintln(w, t.Package)
-	fmt.Fprintln(w)
+	if useYaml {
+		encoder := yaml.NewEncoder(file)
+		err = encoder.Encode(t)
+		if err != nil {
+			println("Failed to encode document:", err.Error())
+			return err
+		}
+	} else {
+		fmt.Fprintln(w, "# package")
+		fmt.Fprintln(w, t.Package)
+		fmt.Fprintln(w)
 
-	for _, i := range t.Imports {
-		s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
-		fmt.Fprintln(w, strings.TrimSpace(s))
+		for _, i := range t.Imports {
+			s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
+			fmt.Fprintln(w, strings.TrimSpace(s))
+		}
 	}
 
 	return nil
