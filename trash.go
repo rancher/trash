@@ -475,6 +475,8 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 					imp := v.Path.Value[1 : len(v.Path.Value)-1]
 					if pkgComponents := strings.Split(imp, "/"); !strings.Contains(pkgComponents[0], ".") {
 						continue
+					} else if pkgComponents[0] == "." || pkgComponents[0] == ".." {
+						imp = filepath.Clean(filepath.Join(pkg, imp))
 					}
 					if imp == rootPackage || strings.HasPrefix(imp, rootPackage+"/") {
 						continue
