@@ -4,6 +4,7 @@ import (
 	"crypto/sha1"
 	"encoding/hex"
 	"fmt"
+	"go/ast"
 	"go/parser"
 	"go/token"
 	"os"
@@ -459,6 +460,8 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 	}
 	go func() {
 		defer close(sch)
+
+		// Gather all the Go imports
 		ps, err := parser.ParseDir(token.NewFileSet(), pkgPath, noVendoredTests, parser.ImportsOnly)
 		if err != nil {
 			if os.IsNotExist(err) {
@@ -483,6 +486,50 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 					}
 					sch <- imp
 					logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
+				}
+			}
+		}
+		// Gather all the CGO imports
+		ps, err = parser.ParseDir(token.NewFileSet(), pkgPath, noVendoredTests, parser.ParseComments)
+		if err != nil {
+			if os.IsNotExist(err) {
+				logrus.Debugf("listImports, pkgPath does not exist: %s", err)
+			} else {
+				logrus.Errorf("Error parsing comments, pkgPath: '%s', err: '%s'", pkgPath, err)
+			}
+			return
+		}
+		logrus.Infof("Collecting CGO imports for package '%s'", pkg)
+		for _, p := range ps {
+			for _, f := range p.Files {
+				// Drill down to locate C preable definitions
+				for _, decl := range f.Decls {
+					d, ok := decl.(*ast.GenDecl)
+					if !ok {
+						continue
+					}
+					for _, spec := range d.Specs {
+						s, ok := spec.(*ast.ImportSpec)
+						if !ok || s.Path.Value != `"C"` {
+							continue
+						}
+						cg := s.Doc
+						if cg == nil && len(d.Specs) == 1 {
+							cg = d.Doc
+						}
+						if cg != nil {
+							// Extract any includes from the preamble
+							for _, line := range strings.Split(cg.Text(), "\n") {
+								if line = strings.TrimSpace(line); strings.HasPrefix(line, "#include \"") {
+									if includePath := filepath.Dir(line[10 : len(line)-1]); includePath != "." {
+										if _, err := os.Stat(filepath.Join(pkgPath, includePath)); !os.IsNotExist(err) {
+											sch <- filepath.Clean(filepath.Join(pkg, includePath))
+										}
+									}
+								}
+							}
+						}
+					}
 				}
 			}
 		}
