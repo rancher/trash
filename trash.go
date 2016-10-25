@@ -519,9 +519,9 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 							// Extract any includes from the preamble
 							for _, line := range strings.Split(cg.Text(), "\n") {
 								if line = strings.TrimSpace(line); strings.HasPrefix(line, "#include \"") {
-									if path := filepath.Dir(line[10 : len(line)-1]); path != "." {
-										if _, err := os.Stat(filepath.Join(pkgPath, path)); !os.IsNotExist(err) {
-											sch <- filepath.Join(pkg, path)
+									if includePath := filepath.Dir(line[10 : len(line)-1]); includePath != "." {
+										if _, err := os.Stat(filepath.Join(pkgPath, includePath)); !os.IsNotExist(err) {
+											sch <- filepath.Clean(filepath.Join(pkg, includePath))
 										}
 									}
 								}
