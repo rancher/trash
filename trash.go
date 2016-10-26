@@ -61,6 +61,10 @@ func main() {
 			Hidden: true,
 			EnvVar: "GOPATH",
 		},
+		cli.BoolFlag{
+			Name:  "yaml, y",
+			Usage: "use yaml to write the conf file",
+		},
 	}
 	app.Action = run
 
@@ -80,6 +84,7 @@ func run(c *cli.Context) error {
 	update := c.Bool("update")
 	trashDir := c.String("cache")
 	gopath = c.String("gopath")
+	useYaml := c.Bool("yaml")
 
 	trashDir, err := filepath.Abs(trashDir)
 	if err != nil {
@@ -118,7 +123,7 @@ func run(c *cli.Context) error {
 		return err
 	}
 	if update {
-		return updateTrash(trashDir, dir, confFile, trashConf)
+		return updateTrash(trashDir, dir, confFile, useYaml, trashConf)
 	}
 	if err := vendor(keep, trashDir, dir, trashConf); err != nil {
 		return err
@@ -129,7 +134,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir, trashConf)
 }
 
-func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
+func updateTrash(trashDir, dir, trashFile string, useYaml bool, trashConf *conf.Conf) error {
 	// TODO collect imports, create `trashConf *conf.Trash`
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
@@ -185,7 +190,7 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 	trashConf.Dedupe()
 
 	os.Chdir(dir)
-	trashConf.Dump(trashFile)
+	trashConf.Dump(trashFile, useYaml)
 
 	return nil
 }
