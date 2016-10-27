@@ -668,6 +668,39 @@ func removeUnusedImports(imports util.Packages, targetDir string) error {
 	})
 }
 
+func removeExcludes(excludes []string, targetDir string) error {
+	exclude := make(map[string]bool)
+	for _, dir := range excludes {
+		exclude[dir] = true
+	}
+	return filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
+		logrus.Debugf("removeExcludes, path: '%s', err: '%v'", path, err)
+		if os.IsNotExist(err) {
+			return filepath.SkipDir
+		}
+		if err != nil {
+			return err
+		}
+		if path == targetDir {
+			return nil
+		}
+		pkg := path[len(targetDir+"/"):]
+		if exclude[pkg] {
+			logrus.Infof("Removing excluded dir: '%s'", path)
+			err := os.RemoveAll(path)
+			if err == nil {
+				return filepath.SkipDir
+			}
+			if os.IsNotExist(err) {
+				return filepath.SkipDir
+			}
+			logrus.Errorf("Error removing excluded dir, path: '%s', err: '%v'", path, err)
+			return err
+		}
+		return nil
+	})
+}
+
 func removeEmptyDirs(targetDir string) error {
 	for count := 1; count != 0; {
 		count = 0
@@ -729,6 +762,9 @@ func cleanup(dir, targetDir string, trashConf *conf.Conf) error {
 	os.Chdir(dir)
 
 	imports := collectImports(rootPackage, targetDir, targetDir)
+	if err := removeExcludes(trashConf.Excludes, targetDir); err != nil {
+		logrus.Errorf("Error removing excluded dirs: %v", err)
+	}
 	if err := removeUnusedImports(imports, targetDir); err != nil {
 		logrus.Errorf("Error removing unused dirs: %v", err)
 	}
