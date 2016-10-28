@@ -162,7 +162,8 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 		imports = collectImports(rootPackage, libRoot)
 	}
 
-	trashConf = &conf.Conf{Package: rootPackage}
+	trashConf.Package = rootPackage // Overwrite possibly non existent root package name
+	trashConf.Imports = nil         // Drop any old imports to include only new ones
 	for pkg := range imports {
 		if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 			continue
@@ -171,7 +172,7 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 		if err != nil {
 			return err
 		}
-		i, ok := trashConf.Get(pkg)
+		i, ok := trashConf.Get(pkg) // Get uses importMap for meta fields, which was preserved above
 		if !ok {
 			i = conf.Import{Package: pkg}
 		}
