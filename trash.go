@@ -484,8 +484,21 @@ func listImports(rootPackage, libRoot, pkg string) <-chan util.Packages {
 					if imp == rootPackage || strings.HasPrefix(imp, rootPackage+"/") {
 						continue
 					}
-					sch <- imp
-					logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
+					// Make sure this package is not already vendored internally
+					parent, vendored := pkgPath, false
+					for parent != "." && parent != libRoot && !vendored {
+						logrus.Debugf("listImports, check %s/vendor for %s", parent, imp)
+						if _, err = os.Stat(filepath.Join(parent, "vendor")); !os.IsNotExist(err) {
+							if _, err = os.Stat(filepath.Join(parent, "vendor", imp)); !os.IsNotExist(err) {
+								vendored = true
+							}
+						}
+						parent = filepath.Dir(parent)
+					}
+					if !vendored {
+						sch <- imp
+						logrus.Debugf("listImports, sch <- '%s'", v.Path.Value[1:len(v.Path.Value)-1])
+					}
 				}
 			}
 		}
