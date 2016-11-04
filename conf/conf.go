@@ -16,6 +16,7 @@ type Conf struct {
 	Imports   []Import `yaml:"import,omitempty"`
 	importMap map[string]Import
 	confFile  string
+	yamlType  bool
 }
 
 type Import struct {
@@ -32,7 +33,8 @@ func Parse(path string) (*Conf, error) {
 	defer file.Close()
 
 	trashConf := &Conf{confFile: path}
-	if err := yaml.NewDecoder(file).Decode(trashConf); err == nil {
+	if yaml.NewDecoder(file).Decode(trashConf) == nil {
+		trashConf.yamlType = true
 		trashConf.Dedupe()
 		return trashConf, nil
 	}
@@ -104,11 +106,16 @@ func (t *Conf) Get(pkg string) (Import, bool) {
 
 func (t *Conf) Dump(path string) error {
 	file, err := os.Create(path)
-	defer file.Close()
 	if err != nil {
 		return err
 	}
+	defer file.Close()
 
+	// If a previous version was in yaml format, preserve it
+	if t.yamlType {
+		return yaml.NewEncoder(file).Encode(t)
+	}
+	// Otherwise create a flat config file
 	w := bufio.NewWriter(file)
 	defer w.Flush()
 
