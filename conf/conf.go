@@ -14,6 +14,7 @@ import (
 type Conf struct {
 	Package   string   `yaml:"package,omitempty"`
 	Imports   []Import `yaml:"import,omitempty"`
+	Excludes  []string `yaml:"exclude,omitempty"`
 	importMap map[string]Import
 	confFile  string
 	yamlType  bool
@@ -61,7 +62,12 @@ func Parse(path string) (*Conf, error) {
 			logrus.Infof("Using '%s' as the project's root package (from %s)", trashConf.Package, trashConf.confFile)
 			continue
 		}
-
+		// If we have a `-` suffix, it's an exclude pattern
+		if fields[0][0] == '-' {
+			trashConf.Excludes = append(trashConf.Excludes, strings.TrimSpace(fields[0][1:]))
+			continue
+		}
+		// Otherwise it's an import pattern
 		packageImport := Import{}
 		packageImport.Package = fields[0] // at least 1 field at this point: trimmed the line and skipped empty
 		if len(fields) > 2 {
@@ -121,13 +127,20 @@ func (t *Conf) Dump(path string) error {
 
 	fmt.Fprintln(w, "# package")
 	fmt.Fprintln(w, t.Package)
-	fmt.Fprintln(w)
 
-	for _, i := range t.Imports {
-		s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
-		fmt.Fprintln(w, strings.TrimSpace(s))
+	if len(t.Imports) > 0 {
+		fmt.Fprintln(w, "\n# import")
+		for _, i := range t.Imports {
+			s := fmt.Sprintf("%s\t%s\t%s", i.Package, i.Version, i.Repo)
+			fmt.Fprintln(w, strings.TrimSpace(s))
+		}
 	}
-
+	if len(t.Excludes) > 0 {
+		fmt.Fprintln(w, "\n# exclude")
+		for _, pkg := range t.Excludes {
+			fmt.Fprintln(w, "-"+strings.TrimSpace(pkg))
+		}
+	}
 	return nil
 }
 
