@@ -6,9 +6,10 @@ Keeping the trash in your ./vendor dir to a minimum.
 
 Make sure you're using go1.6 or later version.
 
- 0. Download and extract `trash` to your PATH
- 1. Copy `vendor.conf` file to your project and edit to your needs.
- 2. Run `trash`
+ 1. Download and extract [latest release](https://github.com/rancher/trash/releases/latest) to your PATH.
+    Alternatively, install or update current development version with `go get -u github.com/rancher/trash`.
+ 2. Copy `vendor.conf` file to your project and edit to your needs.
+ 3. Run `trash`.
 
 `vendor.conf` (in your project root dir) specifies the revisions (git tags or commits, or branches - if you're drunk) of the libraries to be fetched, checked out and copied to ./vendor dir. For example:
 ```
@@ -57,7 +58,7 @@ USAGE:
    trash [global options] command [command options] [arguments...]
 
 VERSION:
-   v0.2.3
+   v0.2.5
 
 AUTHOR(S):
    @imikushin, @ibuildthecloud
