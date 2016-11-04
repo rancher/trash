@@ -38,6 +38,11 @@ func main() {
 			Value: ".",
 			Usage: "The directory in which to run, --file is relative to this",
 		},
+		cli.StringFlag{
+			Name:  "target, T",
+			Value: "vendor",
+			Usage: "The directory to store results",
+		},
 		cli.BoolFlag{
 			Name:  "keep, k",
 			Usage: "Keep all downloaded vendor code (preserving .git dirs)",
@@ -75,6 +80,7 @@ func run(c *cli.Context) error {
 	}
 
 	dir := c.String("directory")
+	targetDir := c.String("target")
 	confFile := c.String("file")
 	keep := c.Bool("keep")
 	update := c.Bool("update")
@@ -118,18 +124,18 @@ func run(c *cli.Context) error {
 		return err
 	}
 	if update {
-		return updateTrash(trashDir, dir, confFile, trashConf)
+		return updateTrash(trashDir, dir, targetDir, confFile, trashConf)
 	}
-	if err := vendor(keep, trashDir, dir, trashConf); err != nil {
+	if err := vendor(keep, trashDir, dir, targetDir, trashConf); err != nil {
 		return err
 	}
 	if keep {
 		return nil
 	}
-	return cleanup(dir, trashConf)
+	return cleanup(dir, targetDir, trashConf)
 }
 
-func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
+func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf) error {
 	// TODO collect imports, create `trashConf *conf.Trash`
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
@@ -143,7 +149,7 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 	importsLen := 0
 
 	os.Chdir(dir)
-	imports := collectImports(rootPackage, libRoot)
+	imports := collectImports(rootPackage, libRoot, targetDir)
 	for len(imports) > importsLen {
 		importsLen = len(imports)
 		for pkg := range imports {
@@ -159,7 +165,7 @@ func updateTrash(trashDir, dir, trashFile string, trashConf *conf.Conf) error {
 			checkout(trashDir, i)
 		}
 		os.Chdir(dir)
-		imports = collectImports(rootPackage, libRoot)
+		imports = collectImports(rootPackage, libRoot, targetDir)
 	}
 
 	trashConf.Package = rootPackage // Overwrite possibly non existent root package name
@@ -215,7 +221,7 @@ func getLatestVersion(libRoot, pkg string) (string, error) {
 	return s, nil
 }
 
-func vendor(keep bool, trashDir, dir string, trashConf *conf.Conf) error {
+func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf) error {
 	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -233,7 +239,7 @@ func vendor(keep bool, trashDir, dir string, trashConf *conf.Conf) error {
 		checkout(trashDir, i)
 	}
 
-	vendorDir := path.Join(dir, "vendor")
+	vendorDir := path.Join(dir, targetDir)
 	os.RemoveAll(vendorDir)
 	os.MkdirAll(vendorDir, 0755)
 
@@ -549,7 +555,7 @@ func chanPackagesFromLines(lnc <-chan string) <-chan util.Packages {
 	})
 }
 
-func listPackages(rootPackage string) util.Packages {
+func listPackages(rootPackage, targetDir string) util.Packages {
 	r := util.Packages{}
 	filepath.Walk(".", func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -559,8 +565,8 @@ func listPackages(rootPackage string) util.Packages {
 		if !info.IsDir() {
 			return nil
 		}
-		if path == "vendor" ||
-			strings.HasSuffix(path, "vendor/") ||
+		if path == targetDir ||
+			strings.HasSuffix(path, targetDir + "/") ||
 			path != "." && strings.HasPrefix(path[strings.LastIndex(path, "/")+1:], ".") {
 			return filepath.SkipDir
 		}
@@ -583,11 +589,11 @@ func listPackages(rootPackage string) util.Packages {
 	return r
 }
 
-func collectImports(rootPackage, libRoot string) util.Packages {
+func collectImports(rootPackage, libRoot, targetDir string) util.Packages {
 	logrus.Infof("Collecting packages in '%s'", rootPackage)
 
 	imports := util.Packages{}
-	packages := listPackages(rootPackage)
+	packages := listPackages(rootPackage, targetDir)
 
 	seenPackages := util.Packages{}
 	for len(packages) > 0 {
@@ -615,13 +621,12 @@ func collectImports(rootPackage, libRoot string) util.Packages {
 	return imports
 }
 
-func removeUnusedImports(imports util.Packages) error {
+func removeUnusedImports(imports util.Packages, targetDir string) error {
 	importsParents := util.Packages{}
 	for i := range imports {
 		importsParents.Merge(parentPackages("", i))
 	}
-
-	return filepath.Walk("vendor", func(path string, info os.FileInfo, err error) error {
+	return filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
 		logrus.Debugf("removeUnusedImports, path: '%s', err: '%v'", path, err)
 		if os.IsNotExist(err) {
 			return filepath.SkipDir
@@ -629,13 +634,13 @@ func removeUnusedImports(imports util.Packages) error {
 		if err != nil {
 			return err
 		}
-		if path == "vendor" {
+		if path == targetDir {
 			return nil
 		}
 		if !info.IsDir() {
-			pkg := path[len("vendor/"):strings.LastIndex(path, "/")]
+			pkg := path[len(targetDir + "/"):strings.LastIndex(path, "/")]
 			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".go") && !imports[pkg] {
-				logrus.Infof("Removing unused source file: '%s'", path)
+				logrus.Debugf("Removing unused source file: '%s'", path)
 				if err := os.Remove(path); err != nil {
 					if os.IsNotExist(err) {
 						return nil
@@ -646,7 +651,7 @@ func removeUnusedImports(imports util.Packages) error {
 			}
 			return nil
 		}
-		pkg := path[len("vendor/"):]
+		pkg := path[len(targetDir + "/"):]
 		if !imports[pkg] && !importsParents[pkg] {
 			logrus.Infof("Removing unused dir: '%s'", path)
 			err := os.RemoveAll(path)
@@ -663,10 +668,10 @@ func removeUnusedImports(imports util.Packages) error {
 	})
 }
 
-func removeEmptyDirs() error {
+func removeEmptyDirs(targetDir string) error {
 	for count := 1; count != 0; {
 		count = 0
-		if err := filepath.Walk("vendor", func(path string, info os.FileInfo, err error) error {
+		if err := filepath.Walk(targetDir, func(path string, info os.FileInfo, err error) error {
 			logrus.Debugf("removeEmptyDirs, path: '%s', err: '%v'", path, err)
 			if os.IsNotExist(err) {
 				return filepath.SkipDir
@@ -674,7 +679,7 @@ func removeEmptyDirs() error {
 			if err != nil {
 				return err
 			}
-			if path == "vendor" {
+			if path == targetDir {
 				return nil
 			}
 			if info.IsDir() {
@@ -713,7 +718,7 @@ func guessRootPackage(dir string) string {
 	return dir[len(srcPath+"/"):]
 }
 
-func cleanup(dir string, trashConf *conf.Conf) error {
+func cleanup(dir, targetDir string, trashConf *conf.Conf) error {
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
 		rootPackage = guessRootPackage(dir)
@@ -723,19 +728,20 @@ func cleanup(dir string, trashConf *conf.Conf) error {
 
 	os.Chdir(dir)
 
-	imports := collectImports(rootPackage, "vendor")
-	if err := removeUnusedImports(imports); err != nil {
+	imports := collectImports(rootPackage, targetDir, targetDir)
+	if err := removeUnusedImports(imports, targetDir); err != nil {
 		logrus.Errorf("Error removing unused dirs: %v", err)
 	}
-	if err := removeEmptyDirs(); err != nil {
+	if err := removeEmptyDirs(targetDir); err != nil {
 		logrus.Errorf("Error removing empty dirs: %v", err)
 	}
 	for _, i := range trashConf.Imports {
-		if _, err := os.Stat(dir + "/vendor/" + i.Package); err != nil {
+		pth := dir + "/" + targetDir + "/" + i.Package
+		if _, err := os.Stat(pth); err != nil {
 			if os.IsNotExist(err) {
 				logrus.Warnf("Package '%s' has been completely removed: it's probably useless (in %s)", i.Package, trashConf.ConfFile())
 			} else {
-				logrus.Errorf("os.Stat() failed for: %s", dir+"/vendor/"+i.Package)
+				logrus.Errorf("os.Stat() failed for: %s", pth)
 			}
 		}
 	}
