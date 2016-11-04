@@ -566,7 +566,7 @@ func listPackages(rootPackage, targetDir string) util.Packages {
 			return nil
 		}
 		if path == targetDir ||
-			strings.HasSuffix(path, targetDir + "/") ||
+			strings.HasSuffix(path, targetDir+"/") ||
 			path != "." && strings.HasPrefix(path[strings.LastIndex(path, "/")+1:], ".") {
 			return filepath.SkipDir
 		}
@@ -638,7 +638,7 @@ func removeUnusedImports(imports util.Packages, targetDir string) error {
 			return nil
 		}
 		if !info.IsDir() {
-			pkg := path[len(targetDir + "/"):strings.LastIndex(path, "/")]
+			pkg := path[len(targetDir+"/"):strings.LastIndex(path, "/")]
 			if strings.HasSuffix(path, "_test.go") || strings.HasSuffix(path, ".go") && !imports[pkg] {
 				logrus.Debugf("Removing unused source file: '%s'", path)
 				if err := os.Remove(path); err != nil {
@@ -651,7 +651,7 @@ func removeUnusedImports(imports util.Packages, targetDir string) error {
 			}
 			return nil
 		}
-		pkg := path[len(targetDir + "/"):]
+		pkg := path[len(targetDir+"/"):]
 		if !imports[pkg] && !importsParents[pkg] {
 			logrus.Infof("Removing unused dir: '%s'", path)
 			err := os.RemoveAll(path)
