@@ -52,6 +52,10 @@ func main() {
 			Usage: "Update vendored packages, add missing ones",
 		},
 		cli.BoolFlag{
+			Name:  "insecure",
+			Usage: "Pass -insecure to 'go get'",
+		},
+		cli.BoolFlag{
 			Name:  "debug, d",
 			Usage: "Debug logging",
 		},
@@ -84,6 +88,7 @@ func run(c *cli.Context) error {
 	confFile := c.String("file")
 	keep := c.Bool("keep")
 	update := c.Bool("update")
+	insecure := c.Bool("insecure")
 	trashDir := c.String("cache")
 	gopath = c.String("gopath")
 
@@ -124,9 +129,9 @@ func run(c *cli.Context) error {
 		return err
 	}
 	if update {
-		return updateTrash(trashDir, dir, targetDir, confFile, trashConf)
+		return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure)
 	}
-	if err := vendor(keep, trashDir, dir, targetDir, trashConf); err != nil {
+	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
 		return err
 	}
 	if keep {
@@ -135,7 +140,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir, targetDir, trashConf)
 }
 
-func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf) error {
+func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf, insecure bool) error {
 	// TODO collect imports, create `trashConf *conf.Trash`
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
@@ -161,7 +166,7 @@ func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Con
 			if pkg == rootPackage || strings.HasPrefix(pkg, rootPackage+"/") {
 				continue
 			}
-			prepareCache(trashDir, i)
+			prepareCache(trashDir, i, insecure)
 			checkout(trashDir, i)
 		}
 		os.Chdir(dir)
@@ -221,7 +226,7 @@ func getLatestVersion(libRoot, pkg string) (string, error) {
 	return s, nil
 }
 
-func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf) error {
+func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, insecure bool) error {
 	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -235,7 +240,7 @@ func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf) er
 	os.Setenv("GOPATH", trashDir)
 
 	for _, i := range trashConf.Imports {
-		prepareCache(trashDir, i)
+		prepareCache(trashDir, i, insecure)
 		checkout(trashDir, i)
 	}
 
@@ -273,11 +278,11 @@ func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf) er
 	return nil
 }
 
-func prepareCache(trashDir string, i conf.Import) {
+func prepareCache(trashDir string, i conf.Import, insecure bool) {
 	logrus.WithFields(logrus.Fields{"trashDir": trashDir, "i": i}).Debug("entering prepareCache")
 	os.Chdir(trashDir)
 	repoDir := path.Join(trashDir, "src", i.Package)
-	if err := checkGitRepo(trashDir, repoDir, i); err != nil {
+	if err := checkGitRepo(trashDir, repoDir, i, insecure); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err}).Fatal("checkGitRepo failed")
 	}
 }
@@ -335,11 +340,11 @@ func cpy(vendorDir, trashDir string, i conf.Import) {
 	}
 }
 
-func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
+func checkGitRepo(trashDir, repoDir string, i conf.Import, insecure bool) error {
 	logrus.WithFields(logrus.Fields{"repoDir": repoDir, "i": i}).Debug("checkGitRepo")
 	if err := os.Chdir(repoDir); err != nil {
 		if os.IsNotExist(err) {
-			return cloneGitRepo(trashDir, repoDir, i)
+			return cloneGitRepo(trashDir, repoDir, i, insecure)
 		} else {
 			logrus.Errorf("repoDir '%s' cannot be CD'ed to", repoDir)
 			return err
@@ -347,12 +352,12 @@ func checkGitRepo(trashDir, repoDir string, i conf.Import) error {
 	}
 	if !isCurrentDirARepo(trashDir) {
 		os.Chdir(trashDir)
-		return cloneGitRepo(trashDir, repoDir, i)
+		return cloneGitRepo(trashDir, repoDir, i, insecure)
 	}
 	if i.Repo != "" && !remoteExists(remoteName(i.Repo)) {
 		addRemote(i.Repo)
 	} else if !remoteExists("origin") {
-		return cloneGitRepo(trashDir, repoDir, i)
+		return cloneGitRepo(trashDir, repoDir, i, insecure)
 	}
 	return nil
 }
@@ -400,15 +405,20 @@ func remoteName(url string) string {
 	return hex.EncodeToString(ss[:])[:7]
 }
 
-func cloneGitRepo(trashDir, repoDir string, i conf.Import) error {
+func cloneGitRepo(trashDir, repoDir string, i conf.Import, insecure bool) error {
 	logrus.Infof("Preparing cache for '%s'", i.Package)
 	os.Chdir(trashDir)
 	if err := os.RemoveAll(repoDir); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.RemoveAll() failed")
 		return err
 	}
-	if bytes, err := exec.Command("go", "get", "-d", "-f", "-u", i.Package).CombinedOutput(); err != nil {
-		logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go get -d -f -u %s` returned err:\n%s", i.Package, bytes)
+	args := []string{"get", "-d", "-f", "-u"}
+	if insecure {
+		args = append(args, "-insecure")
+	}
+	args = append(args, i.Package)
+	if bytes, err := exec.Command("go", args...).CombinedOutput(); err != nil {
+		logrus.WithFields(logrus.Fields{"err": err}).Debugf("`go %s` returned err:\n%s", strings.Join(args, " "), bytes)
 	}
 	if err := os.MkdirAll(repoDir, 0755); err != nil {
 		logrus.WithFields(logrus.Fields{"err": err, "repoDir": repoDir}).Error("os.MkdirAll() failed")
