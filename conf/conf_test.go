@@ -39,7 +39,7 @@ func TestDuplicates(t *testing.T) {
 	}
 
 	for i, d := range testData {
-		trash := Conf{"", d.imports, nil}
+		trash := Conf{"", d.imports, nil, nil, "", false}
 		trash.Dedupe()
 
 		if d.duplicates != len(d.imports)-len(trash.Imports) {
