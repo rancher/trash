@@ -335,8 +335,10 @@ func cpy(vendorDir, trashDir string, i conf.Import) {
 	repoDir := path.Join(trashDir, "src", i.Package)
 	target, _ := path.Split(path.Join(vendorDir, i.Package))
 	os.MkdirAll(target, 0755)
-	if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
-		logrus.Fatalf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+	// We use -dR instead of -a so that we don't inadvertently try to
+	// copy file permisisons on NFS.
+	if bytes, err := exec.Command("cp", "-dR", repoDir, target).CombinedOutput(); err != nil {
+		logrus.Fatalf("`cp -dR %s %s` failed:\n%s", repoDir, target, bytes)
 	}
 }
 
