@@ -18,6 +18,8 @@ import (
 
 	"github.com/rancher/trash/conf"
 	"github.com/rancher/trash/util"
+	"github.com/eapache/go-resiliency/retrier"
+	"time"
 )
 
 var Version string = "v0.3.0-dev"
@@ -65,6 +67,11 @@ func main() {
 			Value:  path.Join(os.Getenv("HOME"), ".trash-cache"),
 			EnvVar: "TRASH_CACHE",
 		},
+		cli.IntFlag{
+			Name: "retry",
+			Usage: "Retries",
+			Value: 10,
+		},
 		cli.StringFlag{
 			Name:   "gopath",
 			Hidden: true,
@@ -91,6 +98,7 @@ func run(c *cli.Context) error {
 	insecure := c.Bool("insecure")
 	trashDir := c.String("cache")
 	gopath = c.String("gopath")
+	retry := c.Int("retry")
 
 	trashDir, err := filepath.Abs(trashDir)
 	if err != nil {
@@ -129,9 +137,9 @@ func run(c *cli.Context) error {
 		return err
 	}
 	if update {
-		return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure)
+		return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure, retry)
 	}
-	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
+	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure, retry); err != nil {
 		return err
 	}
 	if keep {
@@ -140,7 +148,7 @@ func run(c *cli.Context) error {
 	return cleanup(dir, targetDir, trashConf)
 }
 
-func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf, insecure bool) error {
+func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf, insecure bool, retry int) error {
 	// TODO collect imports, create `trashConf *conf.Trash`
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
@@ -167,7 +175,7 @@ func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Con
 				continue
 			}
 			prepareCache(trashDir, i, insecure)
-			checkout(trashDir, i)
+			checkout(trashDir, retry, i)
 		}
 		os.Chdir(dir)
 		imports = collectImports(rootPackage, libRoot, targetDir)
@@ -226,7 +234,7 @@ func getLatestVersion(libRoot, pkg string) (string, error) {
 	return s, nil
 }
 
-func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, insecure bool) error {
+func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, insecure bool, retry int) error {
 	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -241,7 +249,7 @@ func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, in
 
 	for _, i := range trashConf.Imports {
 		prepareCache(trashDir, i, insecure)
-		checkout(trashDir, i)
+		checkout(trashDir, retry, i)
 	}
 
 	vendorDir := path.Join(dir, targetDir)
@@ -298,7 +306,7 @@ func isBranch(remote, version string) bool {
 	return false
 }
 
-func checkout(trashDir string, i conf.Import) {
+func checkout(trashDir string, retry int, i conf.Import) {
 	logrus.WithFields(logrus.Fields{"trashDir": trashDir, "i": i}).Debug("entering checkout")
 	repoDir := path.Join(trashDir, "src", i.Package)
 	if err := os.Chdir(repoDir); err != nil {
@@ -308,7 +316,7 @@ func checkout(trashDir string, i conf.Import) {
 	version := i.Version
 	if i.Version == "master" || isBranch(remoteName(i.Repo), i.Version) {
 		version = remoteName(i.Repo) + "/" + i.Version
-		if err := fetch(i); err != nil {
+		if err := fetch(i, retry); err != nil {
 			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
 	}
@@ -321,7 +329,7 @@ func checkout(trashDir string, i conf.Import) {
 				logrus.Fatalf("Failed to get latest commit with `git log --all --pretty=oneline --abbrev-commit -1`: %s", err)
 			}
 			version = strings.Fields(strings.TrimSpace(string(bytes)))[0]
-		} else if err := fetch(i); err != nil {
+		} else if err := fetch(i, retry); err != nil {
 			logrus.WithFields(logrus.Fields{"i": i}).Fatalf("fetch failed")
 		}
 		logrus.Debugf("Retrying!: `git checkout -f --detach %s`", version)
@@ -435,14 +443,18 @@ func cloneGitRepo(trashDir, repoDir string, i conf.Import, insecure bool) error 
 	return nil
 }
 
-func fetch(i conf.Import) error {
+func fetch(i conf.Import, retry int) (err error) {
 	remote := remoteName(i.Repo)
-	logrus.Infof("Fetching latest commits from '%s' for '%s'", remote, i.Package)
-	if bytes, err := exec.Command("git", "fetch", "-f", "-t", remote).CombinedOutput(); err != nil {
-		logrus.Errorf("`git fetch -f -t %s` failed:\n%s", remote, bytes)
-		return err
-	}
-	return nil
+	rtr := retrier.New(retrier.ConstantBackoff(retry, time.Second), retrier.DefaultClassifier{})
+	err = rtr.Run(func() error {
+		logrus.Infof("Fetching latest commits from '%s' for '%s'", remote, i.Package)
+		if bytes, err := exec.Command("git", "fetch", "-f", "-t", remote).CombinedOutput(); err != nil {
+			logrus.Errorf("`git fetch -f -t %s` failed:\n%s", remote, bytes)
+			return err
+		}
+		return nil
+	})
+	return 
 }
 
 func parentPackages(root, p string) util.Packages {
