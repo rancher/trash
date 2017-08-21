@@ -24,6 +24,12 @@ type Import struct {
 	Package string `yaml:"package,omitempty"`
 	Version string `yaml:"version,omitempty"`
 	Repo    string `yaml:"repo,omitempty"`
+	Options
+}
+
+type Options struct {
+	Transitive bool `yaml:"transitive,omitempty"`
+	Staging    bool `yaml:"staging,omitempty"`
 }
 
 func Parse(path string) (*Conf, error) {
@@ -67,11 +73,19 @@ func Parse(path string) (*Conf, error) {
 			trashConf.Excludes = append(trashConf.Excludes, strings.TrimSpace(fields[0][1:]))
 			continue
 		}
+
 		// Otherwise it's an import pattern
 		packageImport := Import{}
 		packageImport.Package = fields[0] // at least 1 field at this point: trimmed the line and skipped empty
+		if len(fields) > 3 {
+			packageImport.Options = parseOptions(fields[3])
+		}
 		if len(fields) > 2 {
-			packageImport.Repo = fields[2]
+			if strings.Contains(fields[2], "=") {
+				packageImport.Options = parseOptions(fields[2])
+			} else {
+				packageImport.Repo = fields[2]
+			}
 		}
 		if len(fields) > 1 {
 			packageImport.Version = fields[1]
@@ -81,6 +95,24 @@ func Parse(path string) (*Conf, error) {
 
 	trashConf.Dedupe()
 	return trashConf, nil
+}
+
+// Other options besides include_transitive can be included in the future
+func parseOptions(options string) Options {
+	var importOptions Options
+	parts := strings.Split(options, ",")
+	for _, part := range parts {
+		kvParts := strings.Split(part, "=")
+		if len(kvParts) > 1 && kvParts[1] == "true" {
+			switch kvParts[0] {
+			case "transitive":
+				importOptions.Transitive = true
+			case "staging":
+				importOptions.Staging = true
+			}
+		}
+	}
+	return importOptions
 }
 
 // Dedupe deletes duplicates and sorts the imports

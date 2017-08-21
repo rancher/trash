@@ -7,6 +7,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path"
@@ -16,6 +17,7 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/urfave/cli"
 
+	"github.com/Masterminds/glide/godep"
 	"github.com/rancher/trash/conf"
 	"github.com/rancher/trash/util"
 )
@@ -128,12 +130,75 @@ func run(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+
 	if update {
 		return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure)
 	}
+
 	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
 		return err
 	}
+
+	var extraImports []conf.Import
+	for _, packageImport := range trashConf.Imports {
+		if packageImport.Transitive {
+			repoDir := path.Join(trashDir, "src", packageImport.Package)
+			transitiveDependencies, err := godep.Parse(repoDir)
+			if err != nil {
+				return err
+			}
+			for _, transitiveDependency := range transitiveDependencies {
+				extraImports = append(extraImports, conf.Import{
+					Package: transitiveDependency.Name,
+					Version: transitiveDependency.Reference,
+					Repo:    transitiveDependency.Repository,
+				})
+			}
+		}
+	}
+
+	var filteredExtraImports []conf.Import
+	for _, extraImport := range extraImports {
+		packageAlreadyImported := false
+		for _, packageImport := range trashConf.Imports {
+			if packageImport.Package == extraImport.Package {
+				packageAlreadyImported = true
+				break
+			}
+		}
+		if !packageAlreadyImported {
+			filteredExtraImports = append(filteredExtraImports, extraImport)
+		}
+	}
+	trashConf.Imports = append(trashConf.Imports, filteredExtraImports...)
+
+	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
+		return err
+	}
+
+	vendorDir := path.Join(dir, targetDir)
+	for _, packageImport := range trashConf.Imports {
+		if !packageImport.Staging {
+			continue
+		}
+
+		packageLocation := path.Dir(packageImport.Package)
+		baseDir := path.Join(trashDir, "src", packageImport.Package, "staging/src", packageLocation)
+
+		files, err := ioutil.ReadDir(baseDir)
+		if err != nil {
+			return err
+		}
+		for _, f := range files {
+			repoDir := path.Join(baseDir, f.Name())
+			target := path.Join(vendorDir, packageLocation)
+			os.MkdirAll(target, 0755)
+			if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
+				return fmt.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+			}
+		}
+	}
+
 	if keep {
 		return nil
 	}
@@ -250,7 +315,9 @@ func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, in
 
 	logrus.Info("Copying deps...")
 	for _, i := range trashConf.Imports {
-		cpy(vendorDir, trashDir, i)
+		if err := cpy(vendorDir, trashDir, i); err != nil {
+			return err
+		}
 	}
 	logrus.Info("Copying deps... Done")
 	if !keep {
@@ -331,13 +398,14 @@ func checkout(trashDir string, i conf.Import) {
 	}
 }
 
-func cpy(vendorDir, trashDir string, i conf.Import) {
+func cpy(vendorDir, trashDir string, i conf.Import) error {
 	repoDir := path.Join(trashDir, "src", i.Package)
 	target, _ := path.Split(path.Join(vendorDir, i.Package))
 	os.MkdirAll(target, 0755)
 	if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
-		logrus.Fatalf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+		return fmt.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
 	}
+	return nil
 }
 
 func checkGitRepo(trashDir, repoDir string, i conf.Import, insecure bool) error {
