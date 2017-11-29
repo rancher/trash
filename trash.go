@@ -17,9 +17,12 @@ import (
 	"github.com/Sirupsen/logrus"
 	"github.com/urfave/cli"
 
-	"github.com/Masterminds/glide/godep"
+	"reflect"
+
 	"github.com/rancher/trash/conf"
 	"github.com/rancher/trash/util"
+	"github.com/Masterminds/glide/godep"
+	"gopkg.in/yaml.v2"
 )
 
 var Version string = "v0.3.0-dev"
@@ -73,12 +76,20 @@ func main() {
 			EnvVar: "GOPATH",
 		},
 	}
-	app.Action = run
+	app.Action = runWrapper
 
 	app.Run(os.Args)
 }
 
 var gopath string
+
+func runWrapper(ctx *cli.Context) error {
+	if err := run(ctx); err != nil {
+		logrus.Error(err)
+		return err
+	}
+	return nil
+}
 
 func run(c *cli.Context) error {
 	if c.Bool("debug") {
@@ -130,18 +141,36 @@ func run(c *cli.Context) error {
 	if err != nil {
 		return err
 	}
+	defer save(trashConf)
 
 	if update {
-		return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure)
-	}
-
-	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
-		return err
+		//return updateTrash(trashDir, dir, targetDir, confFile, trashConf, insecure)
+		data, err := ioutil.ReadFile(".trash-conf")
+		if err != nil {
+			logrus.Fatal("No .trash-conf found. Make sure to run `trash` to generate .trash-conf first before you run `trash -u`")
+		}
+		var export conf.ExportMap
+		if err := yaml.Unmarshal(data, &export); err != nil {
+			return err
+		}
+		imports := []conf.Import{}
+		for k, imp := range trashConf.ImportMap {
+			if existingImp, ok := export.Imports[k]; !ok {
+				imp.Update = true
+			} else if !reflect.DeepEqual(imp, existingImp) {
+				imp.Update = true
+			}
+			imports = append(imports, imp)
+		}
+		trashConf.Imports = imports
 	}
 
 	var extraImports []conf.Import
 	for _, packageImport := range trashConf.Imports {
 		if packageImport.Transitive {
+			if update && !packageImport.Update {
+				continue
+			}
 			repoDir := path.Join(trashDir, "src", packageImport.Package)
 			transitiveDependencies, err := godep.Parse(repoDir)
 			if err != nil {
@@ -154,7 +183,24 @@ func run(c *cli.Context) error {
 					Repo:    transitiveDependency.Repository,
 				})
 			}
+			if len(transitiveDependencies) == 0 {
+				imports, err := parseTransitiveVendor(repoDir)
+				if err != nil {
+					return err
+				}
+				extraImports = append(extraImports, imports...)
+			}
 		}
+	}
+
+	// clean duplicate imports
+	importMap := map[string]conf.Import{}
+	for _, i := range extraImports {
+		importMap[i.Package] = i
+	}
+	extraImports = []conf.Import{}
+	for _, i := range importMap {
+		extraImports = append(extraImports, i)
 	}
 
 	var filteredExtraImports []conf.Import
@@ -172,29 +218,31 @@ func run(c *cli.Context) error {
 	}
 	trashConf.Imports = append(trashConf.Imports, filteredExtraImports...)
 
-	if err := vendor(keep, trashDir, dir, targetDir, trashConf, insecure); err != nil {
+	if err := vendor(keep, update, trashDir, dir, targetDir, trashConf, insecure); err != nil {
 		return err
 	}
 
-	vendorDir := path.Join(dir, targetDir)
-	for _, packageImport := range trashConf.Imports {
-		if !packageImport.Staging {
-			continue
-		}
+	if !update {
+		vendorDir := path.Join(dir, targetDir)
+		for _, packageImport := range trashConf.Imports {
+			if !packageImport.Staging {
+				continue
+			}
 
-		packageLocation := path.Dir(packageImport.Package)
-		baseDir := path.Join(trashDir, "src", packageImport.Package, "staging/src", packageLocation)
+			packageLocation := path.Dir(packageImport.Package)
+			baseDir := path.Join(trashDir, "src", packageImport.Package, "staging/src", packageLocation)
 
-		files, err := ioutil.ReadDir(baseDir)
-		if err != nil {
-			return err
-		}
-		for _, f := range files {
-			repoDir := path.Join(baseDir, f.Name())
-			target := path.Join(vendorDir, packageLocation)
-			os.MkdirAll(target, 0755)
-			if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
-				return fmt.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+			files, err := ioutil.ReadDir(baseDir)
+			if err != nil {
+				return err
+			}
+			for _, f := range files {
+				repoDir := path.Join(baseDir, f.Name())
+				target := path.Join(vendorDir, packageLocation)
+				os.MkdirAll(target, 0755)
+				if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
+					return fmt.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+				}
 			}
 		}
 	}
@@ -202,7 +250,25 @@ func run(c *cli.Context) error {
 	if keep {
 		return nil
 	}
-	return cleanup(dir, targetDir, trashConf)
+	return cleanup(update, dir, targetDir, trashConf)
+}
+
+func parseTransitiveVendor(repoDir string) ([]conf.Import, error) {
+	configFile := ""
+	for _, f := range []string{"vendor.conf", "trash.conf", "vndr.cfg", "vendor.manifest", "trash.yml", "glide.yaml", "glide.yml", "trash.yaml"} {
+		if _, err := os.Stat(filepath.Join(repoDir, f)); err == nil {
+			configFile = filepath.Join(repoDir, f)
+			break
+		}
+	}
+	if configFile == "" {
+		return []conf.Import{}, nil
+	}
+	trashConf, err := conf.Parse(configFile)
+	if err != nil {
+		return []conf.Import{}, err
+	}
+	return trashConf.Imports, nil
 }
 
 func updateTrash(trashDir, dir, targetDir, trashFile string, trashConf *conf.Conf, insecure bool) error {
@@ -291,7 +357,7 @@ func getLatestVersion(libRoot, pkg string) (string, error) {
 	return s, nil
 }
 
-func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, insecure bool) error {
+func vendor(keep, update bool, trashDir, dir, targetDir string, trashConf *conf.Conf, insecure bool) error {
 	logrus.WithFields(logrus.Fields{"keep": keep, "dir": dir, "trashConf": trashConf}).Debug("vendor")
 	defer os.Chdir(dir)
 
@@ -305,21 +371,36 @@ func vendor(keep bool, trashDir, dir, targetDir string, trashConf *conf.Conf, in
 	os.Setenv("GOPATH", trashDir)
 
 	for _, i := range trashConf.Imports {
+		if update && !i.Update {
+			continue
+		}
 		prepareCache(trashDir, i, insecure)
 		checkout(trashDir, i)
 	}
 
 	vendorDir := path.Join(dir, targetDir)
-	os.RemoveAll(vendorDir)
-	os.MkdirAll(vendorDir, 0755)
-
-	logrus.Info("Copying deps...")
-	for _, i := range trashConf.Imports {
-		if err := cpy(vendorDir, trashDir, i); err != nil {
-			return err
+	if update {
+		logrus.Info("Moving deps...")
+		for _, i := range trashConf.Imports {
+			if i.Update {
+				if err := mv(vendorDir, trashDir, i); err != nil {
+					return err
+				}
+			}
 		}
+		logrus.Info("Moving deps... Done")
+	} else {
+		os.RemoveAll(vendorDir)
+		os.MkdirAll(vendorDir, 0755)
+
+		logrus.Info("Copying deps...")
+		for _, i := range trashConf.Imports {
+			if err := cpy(vendorDir, trashDir, i); err != nil {
+				return err
+			}
+		}
+		logrus.Info("Copying deps... Done")
 	}
-	logrus.Info("Copying deps... Done")
 	if !keep {
 		if err := filepath.Walk(vendorDir, func(path string, info os.FileInfo, err error) error {
 			if os.IsNotExist(err) {
@@ -404,6 +485,18 @@ func cpy(vendorDir, trashDir string, i conf.Import) error {
 	os.MkdirAll(target, 0755)
 	if bytes, err := exec.Command("cp", "-a", repoDir, target).CombinedOutput(); err != nil {
 		return fmt.Errorf("`cp -a %s %s` failed:\n%s", repoDir, target, bytes)
+	}
+	return nil
+}
+
+func mv(vendorDir, trashDir string, i conf.Import) error {
+	repoDir := path.Join(trashDir, "src", i.Package)
+	target := path.Join(vendorDir, i.Package)
+	os.RemoveAll(target)
+	os.MkdirAll(target, 0755)
+	logrus.Infof("Moving %s to %s", repoDir, filepath.Dir(target))
+	if bytes, err := exec.Command("mv", repoDir, filepath.Dir(target)).CombinedOutput(); err != nil {
+		return fmt.Errorf("`mv -a %s %s` failed:\n%s", repoDir, target, bytes)
 	}
 	return nil
 }
@@ -699,7 +792,7 @@ func collectImports(rootPackage, libRoot, targetDir string) util.Packages {
 	return imports
 }
 
-func removeUnusedImports(imports util.Packages, targetDir string) error {
+func removeUnusedImports(imports util.Packages, targetDir string, updatePackages map[string]bool) error {
 	importsParents := util.Packages{}
 	for i := range imports {
 		importsParents.Merge(parentPackages("", i))
@@ -713,6 +806,19 @@ func removeUnusedImports(imports util.Packages, targetDir string) error {
 			return err
 		}
 		if path == targetDir {
+			return nil
+		}
+		shouldClean := false
+		if updatePackages == nil || len(updatePackages) == 0 {
+			shouldClean = true
+		}
+		for pkg := range updatePackages {
+			if strings.HasPrefix(path, filepath.Join(targetDir, pkg)) {
+				shouldClean = true
+				break
+			}
+		}
+		if !shouldClean {
 			return nil
 		}
 		if !info.IsDir() {
@@ -829,7 +935,7 @@ func guessRootPackage(dir string) string {
 	return dir[len(srcPath+"/"):]
 }
 
-func cleanup(dir, targetDir string, trashConf *conf.Conf) error {
+func cleanup(update bool, dir, targetDir string, trashConf *conf.Conf) error {
 	rootPackage := trashConf.Package
 	if rootPackage == "" {
 		rootPackage = guessRootPackage(dir)
@@ -840,10 +946,20 @@ func cleanup(dir, targetDir string, trashConf *conf.Conf) error {
 	os.Chdir(dir)
 
 	imports := collectImports(rootPackage, targetDir, targetDir)
+	var updatePackages map[string]bool
+	if update {
+		updatePackages = make(map[string]bool)
+		for _, i := range trashConf.Imports {
+			if i.Update {
+				updatePackages[i.Package] = true
+			}
+		}
+		logrus.Infof("Updated packages %v", updatePackages)
+	}
 	if err := removeExcludes(trashConf.Excludes, targetDir); err != nil {
 		logrus.Errorf("Error removing excluded dirs: %v", err)
 	}
-	if err := removeUnusedImports(imports, targetDir); err != nil {
+	if err := removeUnusedImports(imports, targetDir, updatePackages); err != nil {
 		logrus.Errorf("Error removing unused dirs: %v", err)
 	}
 	if err := removeEmptyDirs(targetDir); err != nil {
@@ -860,4 +976,17 @@ func cleanup(dir, targetDir string, trashConf *conf.Conf) error {
 		}
 	}
 	return nil
+}
+
+func save(config *conf.Conf) {
+	export := conf.ExportMap{
+		Imports: config.ImportMap,
+	}
+	data, err := yaml.Marshal(export)
+	if err != nil {
+		logrus.Fatal(err)
+	}
+	if err := ioutil.WriteFile(".trash-conf", data, 0644); err != nil {
+		logrus.Fatal(err)
+	}
 }

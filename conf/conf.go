@@ -15,7 +15,7 @@ type Conf struct {
 	Package   string   `yaml:"package,omitempty"`
 	Imports   []Import `yaml:"import,omitempty"`
 	Excludes  []string `yaml:"exclude,omitempty"`
-	importMap map[string]Import
+	ImportMap map[string]Import
 	confFile  string
 	yamlType  bool
 }
@@ -24,12 +24,17 @@ type Import struct {
 	Package string `yaml:"package,omitempty"`
 	Version string `yaml:"version,omitempty"`
 	Repo    string `yaml:"repo,omitempty"`
+	Update  bool
 	Options
 }
 
 type Options struct {
 	Transitive bool `yaml:"transitive,omitempty"`
 	Staging    bool `yaml:"staging,omitempty"`
+}
+
+type ExportMap struct {
+	Imports map[string]Import `yaml:"imports,omitempty"`
 }
 
 func Parse(path string) (*Conf, error) {
@@ -117,28 +122,28 @@ func parseOptions(options string) Options {
 
 // Dedupe deletes duplicates and sorts the imports
 func (t *Conf) Dedupe() {
-	t.importMap = map[string]Import{}
+	t.ImportMap = map[string]Import{}
 	for _, i := range t.Imports {
-		if _, ok := t.importMap[i.Package]; ok {
+		if _, ok := t.ImportMap[i.Package]; ok {
 			logrus.Debugf("Package '%s' has duplicates (in %s)", i.Package, t.confFile)
 			continue
 		}
-		t.importMap[i.Package] = i
+		t.ImportMap[i.Package] = i
 	}
-	ps := make([]string, 0, len(t.importMap))
-	for p := range t.importMap {
+	ps := make([]string, 0, len(t.ImportMap))
+	for p := range t.ImportMap {
 		ps = append(ps, p)
 	}
 	sort.Strings(ps)
-	imports := make([]Import, 0, len(t.importMap))
+	imports := make([]Import, 0, len(t.ImportMap))
 	for _, p := range ps {
-		imports = append(imports, t.importMap[p])
+		imports = append(imports, t.ImportMap[p])
 	}
 	t.Imports = imports
 }
 
 func (t *Conf) Get(pkg string) (Import, bool) {
-	i, ok := t.importMap[pkg]
+	i, ok := t.ImportMap[pkg]
 	return i, ok
 }
 
