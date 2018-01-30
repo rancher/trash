@@ -12,20 +12,20 @@ import (
 )
 
 type Conf struct {
-	Package   string   `yaml:"package,omitempty"`
-	Imports   []Import `yaml:"import,omitempty"`
-	Excludes  []string `yaml:"exclude,omitempty"`
-	ImportMap map[string]Import
-	confFile  string
-	yamlType  bool
+	Package   string            `yaml:"package,omitempty"`
+	Imports   []Import          `yaml:"import,omitempty"`
+	Excludes  []string          `yaml:"exclude,omitempty"`
+	ImportMap map[string]Import `yaml:"-"`
+	confFile  string            `yaml:"-"`
+	yamlType  bool              `yaml:"-"`
 }
 
 type Import struct {
 	Package string `yaml:"package,omitempty"`
 	Version string `yaml:"version,omitempty"`
 	Repo    string `yaml:"repo,omitempty"`
-	Update  bool
-	Options
+	Update  bool   `yaml:"-"`
+	Options `yaml:"-"`
 }
 
 type Options struct {
