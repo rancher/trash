@@ -983,6 +983,10 @@ func cleanup(update bool, dir, targetDir string, trashConf *conf.Conf) error {
 	if err := removeExcludes(trashConf.Excludes, targetDir); err != nil {
 		logrus.Errorf("Error removing excluded dirs: %v", err)
 	}
+	for _, im := range trashConf.Packages {
+		logrus.Infof("Must include package %s", im)
+		imports[im] = true
+	}
 	if err := removeUnusedImports(imports, targetDir, updatePackages); err != nil {
 		logrus.Errorf("Error removing unused dirs: %v", err)
 	}

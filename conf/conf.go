@@ -15,6 +15,7 @@ type Conf struct {
 	Package   string            `yaml:"package,omitempty"`
 	Imports   []Import          `yaml:"import,omitempty"`
 	Excludes  []string          `yaml:"exclude,omitempty"`
+	Packages  []string          `yaml:"packages,omitempty"`
 	ImportMap map[string]Import `yaml:"-"`
 	confFile  string            `yaml:"-"`
 	yamlType  bool              `yaml:"-"`
@@ -25,7 +26,7 @@ type Import struct {
 	Version string `yaml:"version,omitempty"`
 	Repo    string `yaml:"repo,omitempty"`
 	Update  bool   `yaml:"-"`
-	Options `yaml:"-"`
+	Options `yaml:",inline"`
 }
 
 type Options struct {
@@ -76,6 +77,11 @@ func Parse(path string) (*Conf, error) {
 		// If we have a `-` suffix, it's an exclude pattern
 		if fields[0][0] == '-' {
 			trashConf.Excludes = append(trashConf.Excludes, strings.TrimSpace(fields[0][1:]))
+			continue
+		}
+
+		if strings.HasPrefix(fields[0], "package=") {
+			trashConf.Packages = append(trashConf.Packages, strings.TrimPrefix(fields[0], "package="))
 			continue
 		}
 
