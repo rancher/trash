@@ -13,7 +13,7 @@ import (
 
 type Conf struct {
 	Package   string            `yaml:"package,omitempty"`
-	Imports   []Import          `yaml:"import,omitempty"`
+	Imports   Imports           `yaml:"import,omitempty"`
 	Excludes  []string          `yaml:"exclude,omitempty"`
 	Packages  []string          `yaml:"packages,omitempty"`
 	ImportMap map[string]Import `yaml:"-"`
@@ -27,6 +27,19 @@ type Import struct {
 	Repo    string `yaml:"repo,omitempty"`
 	Update  bool   `yaml:"-"`
 	Options `yaml:",inline"`
+}
+
+type Imports []Import
+
+func (s Imports) Len() int { return len(s) }
+
+func (s Imports) Swap(i, j int) { s[i], s[j] = s[j], s[i] }
+
+func (s Imports) Less(i, j int) bool {
+	if strings.Compare(s[i].Package, s[j].Package) == -1 {
+		return true
+	}
+	return false
 }
 
 type Options struct {

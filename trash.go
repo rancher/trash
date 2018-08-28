@@ -20,10 +20,14 @@ import (
 	"github.com/Masterminds/glide/godep"
 	"github.com/rancher/trash/conf"
 	"github.com/rancher/trash/util"
-	"gopkg.in/yaml.v2"
+	"html/template"
+	"regexp"
+	"sort"
 )
 
 var Version string = "v0.3.0-dev"
+
+var commitRegexp = regexp.MustCompile("^[0-9a-z]+$")
 
 func main() {
 	app := cli.NewApp()
@@ -1007,13 +1011,21 @@ func cleanup(update bool, dir, targetDir string, trashConf *conf.Conf) error {
 				logrus.Errorf("os.Stat() failed for: %s", pth)
 			}
 		} else {
+			i.Repo = strings.TrimPrefix(strings.TrimPrefix(strings.TrimSuffix(i.Repo, ".git"), "https://"), "http://")
+			parts := strings.Split(i.Version, "-g")
+			if len(parts) > 1 && commitRegexp.MatchString(parts[len(parts)-1]) {
+				i.Version = parts[len(parts)-1]
+			}
 			writeConf.Imports = append(writeConf.Imports, i)
 		}
 	}
-	data, err := yaml.Marshal(writeConf)
+	sort.Sort(writeConf.Imports)
+	os.RemoveAll(path.Join(dir, "go.mod"))
+	gomodFile, err := os.Create("go.mod")
 	if err != nil {
 		return err
 	}
-	os.RemoveAll(path.Join(dir, "trash.lock"))
-	return ioutil.WriteFile("trash.lock", data, 0755)
+	t := template.Must(template.New("import").Parse(gomoduleTemplates))
+	t.Execute(gomodFile, writeConf)
+	return nil
 }
