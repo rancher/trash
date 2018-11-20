@@ -73,6 +73,10 @@ func main() {
 			Hidden: true,
 			EnvVar: "GOPATH",
 		},
+		cli.BoolFlag{
+			Name:  "include-vendor",
+			Usage: "whether to include vendor when running trash -k",
+		},
 	}
 	app.Action = runWrapper
 
@@ -101,6 +105,7 @@ func run(c *cli.Context) error {
 	insecure := c.Bool("insecure")
 	trashDir := c.String("cache")
 	gopath = c.String("gopath")
+	includeVendor := c.Bool("include-vendor")
 
 	update := false
 	updateVendor := c.StringSlice("update")
@@ -218,6 +223,24 @@ func run(c *cli.Context) error {
 	}
 
 	if keep {
+		if !includeVendor {
+			wd, err := os.Getwd()
+			if err != nil {
+				return err
+			}
+			root := filepath.Join(wd, "vendor")
+			return filepath.Walk(root, func(path string, info os.FileInfo, err error) error {
+				if err != nil {
+					return filepath.SkipDir
+				}
+				if info.IsDir() && info.Name() == "vendor" && path != root {
+					logrus.Infof("Removing %s", path)
+					os.RemoveAll(path)
+					return filepath.SkipDir
+				}
+				return nil
+			})
+		}
 		return nil
 	}
 	return cleanup(update, dir, targetDir, trashConf)
