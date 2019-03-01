@@ -1,0 +1,25 @@
+package: github.com/rancher/trash
+import:
+- package: github.com/Masterminds/glide
+  version: fb6c62596ce1b29128f1ef7e329c367a648ee9b1
+  repo: https://github.com/StrongMonkey/glide.git
+- package: github.com/Masterminds/vcs
+  version: v1.12.0
+- package: github.com/Sirupsen/logrus
+  version: v0.10.0
+- package: github.com/cloudfoundry-incubator/candiedyaml
+  version: 99c3df8
+- package: github.com/davecgh/go-spew
+  version: 5215b55
+- package: github.com/mitchellh/go-homedir
+  version: b8bc1bf767474819792c23f32d8286a45736f1c6
+- package: github.com/pmezard/go-difflib
+  version: 792786c
+- package: github.com/stretchr/testify
+  version: v1.1.3
+- package: github.com/urfave/cli
+  version: v1.18.0
+- package: golang.org/x/sys
+  version: a408501
+- package: gopkg.in/yaml.v2
+  version: eb3733d160e74a9c7e442f435eb3bea458e1d19f

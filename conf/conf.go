@@ -29,6 +29,23 @@ type Import struct {
 	Options `yaml:",inline"`
 }
 
+type Imports []Import
+
+func (i Imports) Len() int {
+	return len(i)
+}
+
+func (i Imports) Less(k, j int) bool {
+	return strings.Compare(i[k].Package, i[j].Package) <= 0
+}
+
+func (i Imports) Swap(k, j int) {
+	tmp := i[j]
+	i[j] = i[k]
+	i[k] = tmp
+	return
+}
+
 type Options struct {
 	Transitive bool `yaml:"transitive,omitempty"`
 	Staging    bool `yaml:"staging,omitempty"`

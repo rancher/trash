@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -1033,6 +1034,7 @@ func cleanup(update bool, dir, targetDir string, trashConf *conf.Conf) error {
 			writeConf.Imports = append(writeConf.Imports, i)
 		}
 	}
+	sort.Sort(conf.Imports(writeConf.Imports))
 	data, err := yaml.Marshal(writeConf)
 	if err != nil {
 		return err
