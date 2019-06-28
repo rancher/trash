@@ -58,7 +58,7 @@ USAGE:
    trash [global options] command [command options] [arguments...]
 
 VERSION:
-   v0.2.5
+   v0.2.7
 
 AUTHOR(S):
    @imikushin, @ibuildthecloud
@@ -69,10 +69,13 @@ COMMANDS:
 GLOBAL OPTIONS:
    --file value, -f value       Vendored packages list (default: "vendor.conf")
    --directory value, -C value  The directory in which to run, --file is relative to this (default: ".")
+   --target value, -T value     The directory to store results (default: "vendor")
    --keep, -k                   Keep all downloaded vendor code (preserving .git dirs)
-   --update, -u                 Update vendored packages, add missing ones
+   --update value, -u value     specify a list of packages to be updated
+   --insecure                   Pass -insecure to 'go get'
    --debug, -d                  Debug logging
    --cache value                Cache directory (default: "/Users/ivan/.trash-cache") [$TRASH_CACHE]
+   --include-vendor             whether to include vendor when running trash -k
    --help, -h                   show help
    --version, -v                print the version
 ```
